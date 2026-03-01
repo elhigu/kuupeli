@@ -1,0 +1,16 @@
+:root {
+  font-family: 'Nunito Sans', 'Segoe UI', sans-serif;
+  color: #1f2430;
+  background: linear-gradient(160deg, #fbf7ef 0%, #f0f5ff 60%, #eefaf5 100%);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
