@@ -1,23 +1,25 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ImportControls } from './components/ImportControls'
 import { MaskedSentenceInput } from './components/MaskedSentenceInput'
 import { ModelManagerPanel } from './components/ModelManagerPanel'
 import { ReplayButton } from './components/ReplayButton'
 import { SubmitButton } from './components/SubmitButton'
+import { STARTER_SENTENCES } from './data/starterSentences'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { playSentenceAudio } from './tts/playback'
-
-const TARGET_SENTENCE = 'Olipa kerran.'
 
 function normalizeWord(word: string) {
   return word.toLocaleLowerCase('fi-FI').replace(/[.,!?;:()"']/g, '')
 }
 
 export default function App() {
+  const [sentenceIndex, setSentenceIndex] = useState(0)
+  const currentSentence = STARTER_SENTENCES[sentenceIndex]
+
   const targetWords = useMemo(
-    () => TARGET_SENTENCE.split(/\s+/).map((word) => normalizeWord(word)).filter(Boolean),
-    []
+    () => currentSentence.split(/\s+/).map((word) => normalizeWord(word)).filter(Boolean),
+    [currentSentence]
   )
 
   const [answers, setAnswers] = useState<string[]>(() => targetWords.map(() => ''))
@@ -28,6 +30,14 @@ export default function App() {
   const [audioError, setAudioError] = useState<string | null>(null)
 
   const isComplete = stars !== null
+
+  useEffect(() => {
+    setAnswers(targetWords.map(() => ''))
+    setAttemptCount(0)
+    setStars(null)
+    setInvalidIndexes([])
+    setAudioError(null)
+  }, [targetWords])
 
   function handleSubmit() {
     const nextAttempt = attemptCount + 1
@@ -51,19 +61,28 @@ export default function App() {
     setReplayCount((count) => count + 1)
 
     try {
-      await playSentenceAudio(TARGET_SENTENCE)
+      await playSentenceAudio(currentSentence)
       setAudioError(null)
     } catch {
       setAudioError('Audio playback is unavailable on this browser.')
     }
   }
 
+  function handleNextSentence() {
+    if (sentenceIndex < STARTER_SENTENCES.length - 1) {
+      setSentenceIndex((current) => current + 1)
+    }
+  }
+
   return (
     <main className="app-shell">
       <h1>Kuupeli</h1>
+      <p aria-live="polite">
+        Starter Pack: {sentenceIndex + 1}/{STARTER_SENTENCES.length}
+      </p>
 
       <section className="round-panel">
-        <MaskedSentenceInput sentence={TARGET_SENTENCE} />
+        <MaskedSentenceInput sentence={currentSentence} />
 
         <ReplayButton
           onReplay={() => {
@@ -89,7 +108,7 @@ export default function App() {
                   <span>{label}</span>
                   <input
                     aria-label={label}
-                    value={answers[index]}
+                    value={answers[index] ?? ''}
                     onChange={(event) => {
                       const next = [...answers]
                       next[index] = event.target.value
@@ -105,6 +124,11 @@ export default function App() {
         </form>
 
         {isComplete && <p aria-live="polite">Stars: {stars}</p>}
+        {isComplete && sentenceIndex < STARTER_SENTENCES.length - 1 && (
+          <button type="button" onClick={handleNextSentence}>
+            Next sentence
+          </button>
+        )}
         {!isComplete && invalidIndexes.length > 0 && (
           <p aria-live="polite">Fix highlighted words: {invalidIndexes.join(', ')}</p>
         )}
