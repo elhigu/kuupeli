@@ -9,11 +9,28 @@ import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { playSentenceAudio } from './tts/playback'
 
+type ThemeMode = 'dark' | 'light'
+const THEME_STORAGE_KEY = 'kuupeli-theme'
+
 function normalizeWord(word: string) {
   return word.toLocaleLowerCase('fi-FI').replace(/[.,!?;:()"']/g, '')
 }
 
+function readPersistedTheme(): ThemeMode {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY)
+    if (value === 'dark' || value === 'light') {
+      return value
+    }
+  } catch {
+    // Ignore storage read issues and default to dark.
+  }
+
+  return 'dark'
+}
+
 export default function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => readPersistedTheme())
   const [sentenceIndex, setSentenceIndex] = useState(0)
   const currentSentence = STARTER_SENTENCES[sentenceIndex]
 
@@ -30,6 +47,16 @@ export default function App() {
   const [audioError, setAudioError] = useState<string | null>(null)
 
   const isComplete = stars !== null
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // Ignore storage write issues so gameplay continues.
+    }
+  }, [theme])
 
   useEffect(() => {
     setAnswers(targetWords.map(() => ''))
@@ -76,7 +103,19 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <h1>Kuupeli</h1>
+      <header className="app-header">
+        <h1>Kuupeli</h1>
+        <button
+          type="button"
+          className="theme-toggle"
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={() => {
+            setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+          }}
+        >
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
+      </header>
       <p aria-live="polite">
         Starter Pack: {sentenceIndex + 1}/{STARTER_SENTENCES.length}
       </p>

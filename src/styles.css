@@ -1,7 +1,28 @@
 :root {
   font-family: 'Nunito Sans', 'Segoe UI', sans-serif;
-  color: #1f2430;
-  background: linear-gradient(160deg, #fbf7ef 0%, #f0f5ff 60%, #eefaf5 100%);
+  color-scheme: dark;
+  --text-color: #e5edf7;
+  --bg-gradient: radial-gradient(circle at 15% 15%, #1d335f 0%, transparent 45%),
+    radial-gradient(circle at 80% 10%, #2a4f3c 0%, transparent 40%),
+    linear-gradient(165deg, #0d1322 0%, #111a2d 55%, #18243b 100%);
+  --panel-background: rgba(15, 25, 43, 0.85);
+  --panel-border: rgba(143, 182, 255, 0.28);
+  --input-background: #0b1220;
+  --input-border: #46648d;
+  --accent: #9cc4ff;
+  color: var(--text-color);
+  background: var(--bg-gradient);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --text-color: #1f2430;
+  --bg-gradient: linear-gradient(160deg, #fbf7ef 0%, #f0f5ff 60%, #eefaf5 100%);
+  --panel-background: rgba(255, 255, 255, 0.8);
+  --panel-border: rgba(11, 46, 79, 0.15);
+  --input-background: #ffffff;
+  --input-border: #5d7592;
+  --accent: #204f85;
 }
 
 * {
@@ -11,6 +32,8 @@
 body {
   margin: 0;
   min-height: 100vh;
+  background: var(--bg-gradient);
+  color: var(--text-color);
 }
 
 #root {
@@ -26,10 +49,27 @@ body {
   gap: 1.5rem;
 }
 
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.theme-toggle {
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-color);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  cursor: pointer;
+}
+
 .round-panel,
 .tools-panel {
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(11, 46, 79, 0.15);
+  background: var(--panel-background);
+  border: 1px solid var(--panel-border);
   border-radius: 14px;
   padding: 1rem;
   display: grid;
@@ -52,6 +92,15 @@ body {
   gap: 0.35rem;
 }
 
+.word-input input {
+  font: inherit;
+  color: var(--text-color);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--input-background);
+  padding: 0.45rem 0.55rem;
+}
+
 .word-input.invalid input {
   border-color: #cb202d;
   background: #fff2f4;
@@ -60,5 +109,10 @@ body {
 @media (max-width: 640px) {
   .app-shell {
     padding: 1rem;
+  }
+
+  .app-header {
+    align-items: start;
+    flex-direction: column;
   }
 }
