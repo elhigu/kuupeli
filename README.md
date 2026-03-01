@@ -1,0 +1,3 @@
+# kuupeli
+
+Project scaffold repository.
