@@ -9,6 +9,12 @@ if (!container) {
   throw new Error('Root container not found')
 }
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js')
+  })
+}
+
 createRoot(container).render(
   <React.StrictMode>
     <App />
