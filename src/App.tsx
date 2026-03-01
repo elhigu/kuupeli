@@ -6,6 +6,7 @@ import { ReplayButton } from './components/ReplayButton'
 import { SubmitButton } from './components/SubmitButton'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
+import { playSentenceAudio } from './tts/playback'
 
 const TARGET_SENTENCE = 'Olipa kerran.'
 
@@ -24,6 +25,7 @@ export default function App() {
   const [stars, setStars] = useState<1 | 2 | 3 | null>(null)
   const [invalidIndexes, setInvalidIndexes] = useState<number[]>([])
   const [replayCount, setReplayCount] = useState(0)
+  const [audioError, setAudioError] = useState<string | null>(null)
 
   const isComplete = stars !== null
 
@@ -45,6 +47,17 @@ export default function App() {
     setInvalidIndexes(invalid)
   }
 
+  async function handleReplay() {
+    setReplayCount((count) => count + 1)
+
+    try {
+      await playSentenceAudio(TARGET_SENTENCE)
+      setAudioError(null)
+    } catch {
+      setAudioError('Audio playback is unavailable on this browser.')
+    }
+  }
+
   return (
     <main className="app-shell">
       <h1>Kuupeli</h1>
@@ -52,8 +65,13 @@ export default function App() {
       <section className="round-panel">
         <MaskedSentenceInput sentence={TARGET_SENTENCE} />
 
-        <ReplayButton onReplay={() => setReplayCount((count) => count + 1)} />
+        <ReplayButton
+          onReplay={() => {
+            void handleReplay()
+          }}
+        />
         <p aria-live="polite">Replay count: {replayCount}</p>
+        {audioError && <p role="alert">{audioError}</p>}
 
         <form
           onSubmit={(event) => {
