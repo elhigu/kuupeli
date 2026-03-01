@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App'
@@ -24,12 +24,16 @@ describe('App replay audio', () => {
     })
   })
 
-  it('plays sentence audio when replay is clicked', async () => {
+  it('plays sentence audio on initial load and when replay is clicked', async () => {
     const user = userEvent.setup()
     render(<App />)
 
+    await waitFor(() => {
+      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+    })
+
     await user.click(screen.getByRole('button', { name: /replay/i }))
 
-    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(2)
   })
 })

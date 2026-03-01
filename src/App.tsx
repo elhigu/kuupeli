@@ -66,6 +66,33 @@ export default function App() {
     setAudioError(null)
   }, [targetWords])
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      return
+    }
+
+    let cancelled = false
+
+    const autoplayCurrentSentence = async () => {
+      try {
+        await playSentenceAudio(currentSentence)
+        if (!cancelled) {
+          setAudioError(null)
+        }
+      } catch {
+        if (!cancelled) {
+          setAudioError('Audio playback is unavailable on this browser.')
+        }
+      }
+    }
+
+    void autoplayCurrentSentence()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentSentence])
+
   function handleSubmit() {
     const nextAttempt = attemptCount + 1
     setAttemptCount(nextAttempt)
@@ -163,9 +190,9 @@ export default function App() {
         </form>
 
         {isComplete && <p aria-live="polite">Stars: {stars}</p>}
-        {isComplete && sentenceIndex < STARTER_SENTENCES.length - 1 && (
+        {sentenceIndex < STARTER_SENTENCES.length - 1 && (
           <button type="button" onClick={handleNextSentence}>
-            Next sentence
+            {isComplete ? 'Next sentence' : 'Skip sentence'}
           </button>
         )}
         {!isComplete && invalidIndexes.length > 0 && (
