@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './guardedTest'
 
 test('desktop story round supports replay, retry, and scoring', async ({ page }) => {
   await page.goto('/')

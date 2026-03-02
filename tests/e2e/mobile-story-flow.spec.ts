@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './guardedTest'
 
 test('mobile story round supports replay and scoring', async ({ page }) => {
   await page.goto('/')
