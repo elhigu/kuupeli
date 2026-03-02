@@ -6,7 +6,7 @@ export async function saveProgress(progress: SessionProgress): Promise<void> {
   await db.put('progress', progress)
   logEvent('db_progress', 'saved', {
     packId: progress.packId,
-    sentenceIndex: progress.currentSentenceIndex
+    sentenceIndex: progress.sentenceIndex
   })
 }
 

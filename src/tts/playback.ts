@@ -1,4 +1,6 @@
+import { getActiveModel } from '../models/modelManager'
 import { logError, logEvent } from '../observability/devLogger'
+import { synthesizeSentence } from './ttsRuntime'
 
 export interface PlaybackOptions {
   lang?: string
@@ -7,106 +9,92 @@ export interface PlaybackOptions {
   volume?: number
 }
 
-type SpeechSynthesisWithOptionalEvents = SpeechSynthesis & {
-  addEventListener?: (type: 'voiceschanged', listener: () => void) => void
-  getVoices?: () => SpeechSynthesisVoice[]
-  removeEventListener?: (type: 'voiceschanged', listener: () => void) => void
+const MODEL_TO_VOICE: Record<string, string> = {
+  'fi-starter-small': 'fi',
+  'fi-balanced-medium': 'fi'
 }
 
-function pickVoice(voices: SpeechSynthesisVoice[], lang: string): SpeechSynthesisVoice | null {
-  const normalizedLang = lang.toLocaleLowerCase()
-  return (
-    voices.find((voice) => voice.lang.toLocaleLowerCase().startsWith(normalizedLang)) ??
-    voices.find((voice) => voice.default) ??
-    voices[0] ??
-    null
-  )
+function getVoiceForModel(modelId: string): string {
+  return MODEL_TO_VOICE[modelId] ?? 'fi'
 }
 
-function waitForVoices(synthesis: SpeechSynthesisWithOptionalEvents): Promise<SpeechSynthesisVoice[]> {
-  if (typeof synthesis.getVoices !== 'function') {
-    return Promise.resolve([])
+function playWavBuffer(buffer: ArrayBuffer): Promise<void> {
+  if (typeof window === 'undefined' || typeof Audio === 'undefined' || typeof URL === 'undefined') {
+    return Promise.reject(new Error('Audio element playback not available'))
   }
 
-  const existingVoices = synthesis.getVoices()
-  if (existingVoices.length > 0) {
-    return Promise.resolve(existingVoices)
-  }
+  const blobUrl = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }))
 
-  return new Promise((resolve) => {
-    const onVoicesChanged = () => {
-      const voices = synthesis.getVoices?.() ?? []
-      if (voices.length > 0) {
-        cleanup(voices)
-      }
+  return new Promise<void>((resolve, reject) => {
+    const audio = new Audio(blobUrl)
+    const cleanup = () => URL.revokeObjectURL(blobUrl)
+
+    audio.onended = () => {
+      cleanup()
+      resolve()
     }
 
-    const timeoutId = window.setTimeout(() => {
-      cleanup(synthesis.getVoices?.() ?? [])
-    }, 800)
-
-    const cleanup = (voices: SpeechSynthesisVoice[]) => {
-      window.clearTimeout(timeoutId)
-      synthesis.removeEventListener?.('voiceschanged', onVoicesChanged)
-      resolve(voices)
+    audio.onerror = () => {
+      cleanup()
+      reject(new Error('Audio element playback failed'))
     }
 
-    synthesis.addEventListener?.('voiceschanged', onVoicesChanged)
+    const playPromise = audio.play()
+    if (playPromise) {
+      void playPromise.catch((error: unknown) => {
+        cleanup()
+        reject(error instanceof Error ? error : new Error('Audio play was rejected'))
+      })
+    }
   })
 }
 
-export function playSentenceAudio(text: string, options: PlaybackOptions = {}): Promise<void> {
+function playSpeechSynthesisFallback(text: string, options: PlaybackOptions = {}): Promise<void> {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-    logEvent('audio_playback', 'api_unavailable')
     return Promise.reject(new Error('Speech synthesis API not available'))
   }
 
-  const synthesis = window.speechSynthesis as SpeechSynthesisWithOptionalEvents
-  const canListVoices = typeof synthesis.getVoices === 'function'
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = options.lang ?? 'fi-FI'
+  utterance.rate = options.rate ?? 1
+  utterance.pitch = options.pitch ?? 1
+  utterance.volume = options.volume ?? 1
+
+  return new Promise<void>((resolve, reject) => {
+    utterance.onend = () => resolve()
+    utterance.onerror = () => reject(new Error('Speech synthesis failed'))
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utterance)
+    // Some mocked/browser implementations may never fire onend.
+    setTimeout(() => resolve(), 0)
+  })
+}
+
+export async function playSentenceAudio(text: string, options: PlaybackOptions = {}): Promise<void> {
+  const activeModelId = await getActiveModel()
+  const voice = getVoiceForModel(activeModelId)
+
   logEvent('audio_playback', 'start', {
     textLength: text.length,
-    requestedLang: options.lang ?? 'fi-FI',
-    canListVoices
+    sentence: text,
+    activeModelId,
+    voice
   })
 
-  return waitForVoices(synthesis).then((voices) => {
-    logEvent('audio_playback', 'voices_ready', { voiceCount: voices.length })
-    if (canListVoices && voices.length === 0) {
-      logEvent('audio_playback', 'no_voices_installed')
-    }
+  try {
+    const wavBuffer = await synthesizeSentence(text, { voice })
+    logEvent('audio_playback', 'wasm_synthesized', { bytes: wavBuffer.byteLength, voice })
+    await playWavBuffer(wavBuffer)
+    logEvent('audio_playback', 'wasm_playback_completed', { voice })
+    return
+  } catch (error) {
+    logError('audio_playback', 'wasm_playback_failed', error, { voice })
+  }
 
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = options.lang ?? 'fi-FI'
-    utterance.rate = options.rate ?? 1
-    utterance.pitch = options.pitch ?? 1
-    utterance.volume = options.volume ?? 1
-    utterance.voice = pickVoice(voices, utterance.lang)
-    logEvent('audio_playback', 'voice_selected', {
-      voiceName: utterance.voice?.name ?? null,
-      voiceLang: utterance.voice?.lang ?? null,
-      fallbackDefaultVoice: voices.length === 0
-    })
-
-    return new Promise<void>((resolve, reject) => {
-      utterance.onend = () => {
-        logEvent('audio_playback', 'finished')
-        resolve()
-      }
-      utterance.onerror = () => {
-        const error = new Error('Speech synthesis failed')
-        logError('audio_playback', 'failed', error)
-        reject(error)
-      }
-
-      synthesis.cancel()
-      synthesis.speak(utterance)
-      logEvent('audio_playback', 'speak_called')
-
-      // Some mocked/browser implementations may never fire onend.
-      setTimeout(() => {
-        logEvent('audio_playback', 'fallback_timeout_resolve')
-        resolve()
-      }, 0)
-    })
+  logEvent('audio_playback', 'fallback_speech_synthesis_start', {
+    requestedLang: options.lang ?? 'fi-FI'
   })
+
+  await playSpeechSynthesisFallback(text, options)
+  logEvent('audio_playback', 'fallback_speech_synthesis_completed')
 }
