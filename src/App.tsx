@@ -71,7 +71,8 @@ export default function App() {
     logEvent('round', 'loaded', {
       sentenceIndex,
       sentenceCount: STARTER_SENTENCES.length,
-      targetWordCount: targetWords.length
+      targetWordCount: targetWords.length,
+      sentence: currentSentence
     })
   }, [targetWords])
 

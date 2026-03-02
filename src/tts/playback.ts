@@ -73,7 +73,6 @@ export function playSentenceAudio(text: string, options: PlaybackOptions = {}): 
     logEvent('audio_playback', 'voices_ready', { voiceCount: voices.length })
     if (canListVoices && voices.length === 0) {
       logEvent('audio_playback', 'no_voices_installed')
-      throw new Error('No speech voices installed')
     }
 
     const utterance = new SpeechSynthesisUtterance(text)
@@ -84,7 +83,8 @@ export function playSentenceAudio(text: string, options: PlaybackOptions = {}): 
     utterance.voice = pickVoice(voices, utterance.lang)
     logEvent('audio_playback', 'voice_selected', {
       voiceName: utterance.voice?.name ?? null,
-      voiceLang: utterance.voice?.lang ?? null
+      voiceLang: utterance.voice?.lang ?? null,
+      fallbackDefaultVoice: voices.length === 0
     })
 
     return new Promise<void>((resolve, reject) => {
