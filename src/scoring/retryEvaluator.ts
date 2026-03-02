@@ -1,3 +1,5 @@
+import { logEvent } from '../observability/devLogger'
+
 function normalizeWord(word: string): string {
   return word
     .trim()
@@ -18,5 +20,10 @@ export function findInvalidWords(target: string, input: string): number[] {
     }
   }
 
+  logEvent('retry_evaluator', 'invalid_words_computed', {
+    targetWordCount: targetWords.length,
+    inputWordCount: inputWords.length,
+    invalidCount: invalidIndexes.length
+  })
   return invalidIndexes
 }

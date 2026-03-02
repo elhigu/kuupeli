@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ImportControls } from './components/ImportControls'
 import { MaskedSentenceInput } from './components/MaskedSentenceInput'
 import { ModelManagerPanel } from './components/ModelManagerPanel'
+import { logError, logEvent } from './observability/devLogger'
 import { ReplayButton } from './components/ReplayButton'
 import { SubmitButton } from './components/SubmitButton'
 import { STARTER_SENTENCES } from './data/starterSentences'
@@ -49,12 +50,15 @@ export default function App() {
   const isComplete = stars !== null
 
   useEffect(() => {
+    logEvent('theme', 'applying_theme', { theme })
     document.documentElement.dataset.theme = theme
 
     try {
       localStorage.setItem(THEME_STORAGE_KEY, theme)
+      logEvent('theme', 'persisted', { storageKey: THEME_STORAGE_KEY, theme })
     } catch {
       // Ignore storage write issues so gameplay continues.
+      logEvent('theme', 'persist_failed', { storageKey: THEME_STORAGE_KEY, theme })
     }
   }, [theme])
 
@@ -64,24 +68,33 @@ export default function App() {
     setStars(null)
     setInvalidIndexes([])
     setAudioError(null)
+    logEvent('round', 'loaded', {
+      sentenceIndex,
+      sentenceCount: STARTER_SENTENCES.length,
+      targetWordCount: targetWords.length
+    })
   }, [targetWords])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      logEvent('audio', 'autoplay_skipped_api_unavailable')
       return
     }
 
     let cancelled = false
 
     const autoplayCurrentSentence = async () => {
+      logEvent('audio', 'autoplay_started', { sentenceIndex })
       try {
         await playSentenceAudio(currentSentence)
         if (!cancelled) {
           setAudioError(null)
+          logEvent('audio', 'autoplay_completed', { sentenceIndex })
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setAudioError('Audio playback is unavailable on this browser.')
+          logError('audio', 'autoplay_failed', error, { sentenceIndex })
         }
       }
     }
@@ -100,32 +113,68 @@ export default function App() {
     const actual = answers.map((word) => normalizeWord(word)).join(' ')
     const expected = targetWords.join(' ')
     const invalid = findInvalidWords(expected, actual)
+    logEvent('round', 'submitted', {
+      sentenceIndex,
+      attempt: nextAttempt,
+      invalidCount: invalid.length
+    })
 
     if (invalid.length === 0) {
-      setStars(scoreStars(nextAttempt))
+      const nextStars = scoreStars(nextAttempt)
+      setStars(nextStars)
       setInvalidIndexes([])
+      logEvent('round', 'completed', {
+        sentenceIndex,
+        attempt: nextAttempt,
+        stars: nextStars
+      })
       return
     }
 
     setStars(null)
     setInvalidIndexes(invalid)
+    logEvent('round', 'needs_retry', {
+      sentenceIndex,
+      attempt: nextAttempt,
+      invalidIndexes: invalid
+    })
   }
 
   async function handleReplay() {
-    setReplayCount((count) => count + 1)
+    const nextReplayCount = replayCount + 1
+    setReplayCount(nextReplayCount)
+    logEvent('audio', 'replay_clicked', {
+      sentenceIndex,
+      replayCount: nextReplayCount
+    })
 
     try {
       await playSentenceAudio(currentSentence)
       setAudioError(null)
-    } catch {
+      logEvent('audio', 'replay_completed', {
+        sentenceIndex,
+        replayCount: nextReplayCount
+      })
+    } catch (error) {
       setAudioError('Audio playback is unavailable on this browser.')
+      logError('audio', 'replay_failed', error, {
+        sentenceIndex,
+        replayCount: nextReplayCount
+      })
     }
   }
 
   function handleNextSentence() {
     if (sentenceIndex < STARTER_SENTENCES.length - 1) {
+      logEvent('round', isComplete ? 'next_sentence_clicked' : 'skip_sentence_clicked', {
+        fromSentenceIndex: sentenceIndex,
+        toSentenceIndex: sentenceIndex + 1
+      })
       setSentenceIndex((current) => current + 1)
+      return
     }
+
+    logEvent('round', 'navigation_ignored_last_sentence', { sentenceIndex })
   }
 
   return (
@@ -137,6 +186,10 @@ export default function App() {
           className="theme-toggle"
           aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={() => {
+            logEvent('theme', 'toggle_clicked', {
+              fromTheme: theme,
+              toTheme: theme === 'dark' ? 'light' : 'dark'
+            })
             setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
           }}
         >
@@ -179,6 +232,11 @@ export default function App() {
                       const next = [...answers]
                       next[index] = event.target.value
                       setAnswers(next)
+                      logEvent('input', 'word_updated', {
+                        sentenceIndex,
+                        wordIndex: index,
+                        valueLength: event.target.value.length
+                      })
                     }}
                   />
                 </label>
@@ -201,7 +259,15 @@ export default function App() {
       </section>
 
       <section className="tools-panel">
-        <ImportControls onSelect={() => {}} />
+        <ImportControls
+          onSelect={(file) => {
+            logEvent('ingestion', 'file_selected', {
+              fileName: file.name,
+              fileType: file.type,
+              fileSize: file.size
+            })
+          }}
+        />
         <ModelManagerPanel />
       </section>
     </main>

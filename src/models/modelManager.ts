@@ -1,4 +1,5 @@
 import { MODEL_CATALOG, type ModelCatalogEntry } from './catalog'
+import { logEvent } from '../observability/devLogger'
 
 const STORAGE_KEY = 'kuupeli-installed-models'
 const ACTIVE_MODEL_KEY = 'kuupeli-active-model'
@@ -25,37 +26,47 @@ function writeInstalledModelIds(ids: string[]) {
 
 export async function listModels(): Promise<ModelCatalogEntry[]> {
   const installed = new Set(readInstalledModelIds())
-  return MODEL_CATALOG.filter((model) => installed.has(model.id))
+  const models = MODEL_CATALOG.filter((model) => installed.has(model.id))
+  logEvent('models_store', 'listed', { installedModelIds: models.map((model) => model.id) })
+  return models
 }
 
 export async function installModel(modelId: string): Promise<void> {
   const installed = readInstalledModelIds()
   writeInstalledModelIds([...installed, modelId])
+  logEvent('models_store', 'installed', { modelId })
 
   if (!localStorage.getItem(ACTIVE_MODEL_KEY)) {
     localStorage.setItem(ACTIVE_MODEL_KEY, modelId)
+    logEvent('models_store', 'active_auto_set', { modelId })
   }
 }
 
 export async function removeModel(modelId: string): Promise<void> {
   const installed = readInstalledModelIds().filter((id) => id !== modelId)
   writeInstalledModelIds(installed.length > 0 ? installed : [DEFAULT_MODEL])
+  logEvent('models_store', 'removed', { modelId })
 
   if (localStorage.getItem(ACTIVE_MODEL_KEY) === modelId) {
     localStorage.setItem(ACTIVE_MODEL_KEY, DEFAULT_MODEL)
+    logEvent('models_store', 'active_reset_to_default', { modelId: DEFAULT_MODEL })
   }
 }
 
 export async function setActiveModel(modelId: string): Promise<void> {
   const installed = new Set(readInstalledModelIds())
   if (!installed.has(modelId)) {
+    logEvent('models_store', 'set_active_rejected_not_installed', { modelId })
     throw new Error(`Model not installed: ${modelId}`)
   }
 
   localStorage.setItem(ACTIVE_MODEL_KEY, modelId)
+  logEvent('models_store', 'active_set', { modelId })
 }
 
 export async function getActiveModel(): Promise<string> {
   const active = localStorage.getItem(ACTIVE_MODEL_KEY)
-  return active ?? DEFAULT_MODEL
+  const activeModel = active ?? DEFAULT_MODEL
+  logEvent('models_store', 'active_read', { modelId: activeModel })
+  return activeModel
 }
