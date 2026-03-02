@@ -30,6 +30,10 @@ export function ModelManagerPanel() {
   return (
     <section>
       <h2>Model Manager</h2>
+      <p>
+        Models are local Kuupeli runtime profiles in this version. They do not download separate cloud or external
+        AI model files yet.
+      </p>
       <ul>
         {MODEL_CATALOG.map((model) => {
           const isInstalled = installed.includes(model.id)

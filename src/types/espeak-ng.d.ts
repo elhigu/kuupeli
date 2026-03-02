@@ -7,6 +7,9 @@ declare module 'espeak-ng' {
 
   interface ESpeakFactoryOptions {
     arguments?: string[]
+    locateFile?: (path: string, prefix: string) => string
+    print?: (...args: unknown[]) => void
+    printErr?: (...args: unknown[]) => void
   }
 
   export default function ESpeakNg(options?: ESpeakFactoryOptions): Promise<ESpeakModule>

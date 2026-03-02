@@ -7,6 +7,9 @@ describe('ModelManagerPanel', () => {
     render(<ModelManagerPanel />)
 
     expect(screen.getByRole('heading', { name: /model manager/i })).toBeInTheDocument()
+    expect(
+      screen.getByText(/models are local kuupeli runtime profiles in this version/i)
+    ).toBeInTheDocument()
     expect(await screen.findByText(/finnish starter small/i)).toBeInTheDocument()
   })
 })

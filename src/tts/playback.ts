@@ -1,5 +1,5 @@
 import { getActiveModel } from '../models/modelManager'
-import { logError, logEvent } from '../observability/devLogger'
+import { logEvent } from '../observability/devLogger'
 import { synthesizeSentence } from './ttsRuntime'
 
 export interface PlaybackOptions {
@@ -49,6 +49,18 @@ function playWavBuffer(buffer: ArrayBuffer): Promise<void> {
   })
 }
 
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  return 'Unknown error'
+}
+
 function playSpeechSynthesisFallback(text: string, options: PlaybackOptions = {}): Promise<void> {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
     return Promise.reject(new Error('Speech synthesis API not available'))
@@ -88,7 +100,10 @@ export async function playSentenceAudio(text: string, options: PlaybackOptions =
     logEvent('audio_playback', 'wasm_playback_completed', { voice })
     return
   } catch (error) {
-    logError('audio_playback', 'wasm_playback_failed', error, { voice })
+    logEvent('audio_playback', 'wasm_playback_failed', {
+      voice,
+      reason: describeError(error)
+    })
   }
 
   logEvent('audio_playback', 'fallback_speech_synthesis_start', {

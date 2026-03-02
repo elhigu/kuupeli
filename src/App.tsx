@@ -30,6 +30,14 @@ function readPersistedTheme(): ThemeMode {
   return 'dark'
 }
 
+function shouldDeferAutoplayForGesture(): boolean {
+  if (typeof navigator === 'undefined' || !('userActivation' in navigator)) {
+    return false
+  }
+
+  return !navigator.userActivation.hasBeenActive
+}
+
 export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => readPersistedTheme())
   const [sentenceIndex, setSentenceIndex] = useState(0)
@@ -82,6 +90,11 @@ export default function App() {
       return
     }
 
+    if (shouldDeferAutoplayForGesture()) {
+      logEvent('audio', 'autoplay_deferred_until_user_interaction', { sentenceIndex })
+      return
+    }
+
     let cancelled = false
 
     const autoplayCurrentSentence = async () => {
@@ -94,8 +107,11 @@ export default function App() {
         }
       } catch (error) {
         if (!cancelled) {
-          setAudioError('Audio playback is unavailable on this browser.')
-          logError('audio', 'autoplay_failed', error, { sentenceIndex })
+          setAudioError(null)
+          logEvent('audio', 'autoplay_failed', {
+            sentenceIndex,
+            reason: error instanceof Error ? error.message : 'Unknown error'
+          })
         }
       }
     }
