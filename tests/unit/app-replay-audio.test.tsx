@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../src/tts/playback', () => ({
-  playSentenceAudio: vi.fn().mockResolvedValue(undefined)
+  playSentenceAudio: vi.fn().mockResolvedValue(undefined),
+  stopActivePlayback: vi.fn(() => true)
 }))
 
 import App from '../../src/App'

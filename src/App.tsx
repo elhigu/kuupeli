@@ -13,11 +13,12 @@ import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { storageRecoveryGuidance } from './storage/storageGuidance'
 import { prefetchSentenceClip } from './tts/audioPrefetchQueue'
-import { playSentenceAudio } from './tts/playback'
+import { playSentenceAudio, stopActivePlayback } from './tts/playback'
 
-type ThemeMode = 'dark' | 'light'
 const THEME_STORAGE_KEY = 'kuupeli-theme'
 const SUCCESS_ADVANCE_DELAY_MS = 700
+const STORIES_PATH = `${import.meta.env.BASE_URL}stories`
+const MODELS_PATH = `${import.meta.env.BASE_URL}models`
 
 const EMPTY_MASK_VALUE: MaskedSentenceComposerValue = {
   compact: '',
@@ -27,19 +28,6 @@ const EMPTY_MASK_VALUE: MaskedSentenceComposerValue = {
 
 function normalizeWord(word: string) {
   return word.toLocaleLowerCase('fi-FI').replace(/[.,!?;:()"']/g, '')
-}
-
-function readPersistedTheme(): ThemeMode {
-  try {
-    const value = localStorage.getItem(THEME_STORAGE_KEY)
-    if (value === 'dark' || value === 'light') {
-      return value
-    }
-  } catch {
-    // Ignore storage read issues and default to dark.
-  }
-
-  return 'dark'
 }
 
 function shouldDeferAutoplayForGesture(): boolean {
@@ -59,7 +47,6 @@ function clampSentenceIndex(index: number, sentenceCount: number): number {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<ThemeMode>(() => readPersistedTheme())
   const [stories, setStories] = useState<TrainingPack[]>([DEFAULT_STORY])
   const [progressByStoryId, setProgressByStoryId] = useState<Record<string, number>>({})
   const [activeStoryId, setActiveStoryId] = useState(DEFAULT_STORY_ID)
@@ -75,9 +62,11 @@ export default function App() {
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [isStartModalOpen, setIsStartModalOpen] = useState(true)
   const [hasSessionStarted, setHasSessionStarted] = useState(false)
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false)
   const [focusSignal, setFocusSignal] = useState(0)
   const transitionTimerRef = useRef<number | null>(null)
   const lastAutoplayKeyRef = useRef<string | null>(null)
+  const latestPlaybackRequestRef = useRef(0)
 
   const activeStory = useMemo(
     () => stories.find((story) => story.id === activeStoryId) ?? DEFAULT_STORY,
@@ -150,20 +139,21 @@ export default function App() {
   }, [sentenceCount])
 
   useEffect(() => {
-    logEvent('theme', 'applying_theme', { theme })
-    document.documentElement.dataset.theme = theme
+    const theme = 'dark'
+    logEvent('theme', 'applying_theme', { theme, mode: 'fixed' })
+    document.documentElement.dataset.theme = 'dark'
 
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
+      localStorage.setItem(THEME_STORAGE_KEY, 'dark')
       setStorageWarning(null)
-      logEvent('theme', 'persisted', { storageKey: THEME_STORAGE_KEY, theme })
+      logEvent('theme', 'persisted', { storageKey: THEME_STORAGE_KEY, theme: 'dark' })
     } catch (error) {
       // Keep gameplay running with explicit recovery guidance.
       const guidance = storageRecoveryGuidance(error)
       setStorageWarning(guidance)
-      logError('theme', 'persist_failed', error, { storageKey: THEME_STORAGE_KEY, theme })
+      logError('theme', 'persist_failed', error, { storageKey: THEME_STORAGE_KEY, theme: 'dark' })
     }
-  }, [theme])
+  }, [])
 
   useEffect(() => {
     setMaskValue(EMPTY_MASK_VALUE)
@@ -320,18 +310,7 @@ export default function App() {
 
     const autoplayCurrentSentence = async () => {
       logEvent('audio', 'autoplay_started', { sentenceIndex })
-      try {
-        await playSentenceAudio(currentSentence)
-        if (!cancelled) {
-          setAudioError(null)
-          logEvent('audio', 'autoplay_completed', { sentenceIndex })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setAudioError('Audio playback is unavailable on this browser.')
-          logError('audio', 'autoplay_failed', error, { sentenceIndex })
-        }
-      }
+      await runSentencePlayback(currentSentence, { source: 'autoplay', sentenceIndex })
     }
 
     void autoplayCurrentSentence()
@@ -346,8 +325,39 @@ export default function App() {
       if (transitionTimerRef.current !== null) {
         window.clearTimeout(transitionTimerRef.current)
       }
+      stopActivePlayback()
     }
   }, [])
+
+  async function runSentencePlayback(
+    text: string,
+    context: { source: 'autoplay' | 'replay'; sentenceIndex: number }
+  ): Promise<void> {
+    const requestId = latestPlaybackRequestRef.current + 1
+    latestPlaybackRequestRef.current = requestId
+    setIsAudioPlaying(true)
+
+    try {
+      await playSentenceAudio(text)
+      setAudioError(null)
+      if (context.source === 'autoplay') {
+        logEvent('audio', 'autoplay_completed', { sentenceIndex: context.sentenceIndex })
+      } else {
+        logEvent('audio', 'replay_completed', { sentenceIndex: context.sentenceIndex })
+      }
+    } catch (error) {
+      setAudioError('Audio playback is unavailable on this browser.')
+      if (context.source === 'autoplay') {
+        logError('audio', 'autoplay_failed', error, { sentenceIndex: context.sentenceIndex })
+      } else {
+        logError('audio', 'replay_failed', error, { sentenceIndex: context.sentenceIndex })
+      }
+    } finally {
+      if (latestPlaybackRequestRef.current === requestId) {
+        setIsAudioPlaying(false)
+      }
+    }
+  }
 
   function submitAnswer(answer: string, source: 'button' | 'keyboard') {
     if (isAdvancing) {
@@ -402,15 +412,13 @@ export default function App() {
 
     setFocusSignal((current) => current + 1)
     logEvent('audio', 'replay_clicked', { sentenceIndex })
+    await runSentencePlayback(currentSentence, { source: 'replay', sentenceIndex })
+  }
 
-    try {
-      await playSentenceAudio(currentSentence)
-      setAudioError(null)
-      logEvent('audio', 'replay_completed', { sentenceIndex })
-    } catch (error) {
-      setAudioError('Audio playback is unavailable on this browser.')
-      logError('audio', 'replay_failed', error, { sentenceIndex })
-    }
+  function handleStopAudioPlayback() {
+    const stopped = stopActivePlayback()
+    setIsAudioPlaying(false)
+    logEvent('audio', stopped ? 'stop_clicked' : 'stop_clicked_no_active_playback', { sentenceIndex })
   }
 
   function handleNextSentence() {
@@ -478,37 +486,19 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="app-header">
-        <h1>Kuupeli</h1>
-        <div className="header-actions">
-          <a href="/stories" className="header-link">
+      <header className="app-topbar">
+        <h1 className="app-title">Kuupeli</h1>
+        <nav className="topbar-actions" aria-label="Main menu">
+          <a href={STORIES_PATH} className="header-link">
             Stories
           </a>
-          <a href="/models" className="header-link">
+          <a href={MODELS_PATH} className="header-link">
             Models
           </a>
-          <button
-            type="button"
-            className="theme-toggle"
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            onClick={() => {
-              logEvent('theme', 'toggle_clicked', {
-                fromTheme: theme,
-                toTheme: theme === 'dark' ? 'light' : 'dark'
-              })
-              setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
-            }}
-          >
-            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          </button>
-        </div>
+        </nav>
       </header>
-      <p aria-live="polite">
-        {activeStory.title}: {Math.min(sentenceIndex + 1, sentenceCount)}/{sentenceCount}
-      </p>
-      {storageWarning && <p role="alert">{storageWarning}</p>}
 
-      <section className={`round-panel${isAdvancing ? ' round-panel-success' : ''}`}>
+      <section data-testid="game-area" className={`round-panel${isAdvancing ? ' round-panel-success' : ''}`}>
         <ReplayButton
           onReplay={() => {
             void handleReplay()
@@ -555,6 +545,23 @@ export default function App() {
           <p aria-live="polite">Fix highlighted words: {invalidIndexes.join(', ')}</p>
         )}
       </section>
+      <section data-testid="story-meta" className="story-meta-panel">
+        <p aria-live="polite">
+          {activeStory.title}: {Math.min(sentenceIndex + 1, sentenceCount)}/{sentenceCount}
+        </p>
+        <p aria-live="polite">Current sentence score: {stars ?? '-'}</p>
+      </section>
+      {storageWarning && <p role="alert">{storageWarning}</p>}
+      {hasSessionStarted && isAudioPlaying && (
+        <button
+          type="button"
+          className="floating-stop-audio"
+          aria-label="Stop audio playback"
+          onClick={handleStopAudioPlayback}
+        >
+          Stop
+        </button>
+      )}
 
       {isStartModalOpen && (
         <StartModal

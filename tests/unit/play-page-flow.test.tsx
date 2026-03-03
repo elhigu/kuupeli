@@ -4,10 +4,22 @@ import { describe, expect, it, vi } from 'vitest'
 import App from '../../src/App'
 
 vi.mock('../../src/tts/playback', () => ({
-  playSentenceAudio: vi.fn().mockResolvedValue(undefined)
+  playSentenceAudio: vi.fn().mockResolvedValue(undefined),
+  stopActivePlayback: vi.fn(() => true)
 }))
 
 describe('Play page flow', () => {
+  it('renders top menu and keeps story meta below game area', async () => {
+    render(<App />)
+
+    expect(screen.getByRole('link', { name: 'Stories' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
+
+    const gameArea = screen.getByTestId('game-area')
+    const storyMeta = screen.getByTestId('story-meta')
+    expect(gameArea.compareDocumentPosition(storyMeta) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
+
   it('accepts continuous typing and scores a correct sentence', async () => {
     const user = userEvent.setup()
     render(<App />)

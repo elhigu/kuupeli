@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App'
 
 vi.mock('../../src/tts/playback', () => ({
-  playSentenceAudio: vi.fn().mockResolvedValue(undefined)
+  playSentenceAudio: vi.fn().mockResolvedValue(undefined),
+  stopActivePlayback: vi.fn(() => true)
 }))
 
 describe('Play page success transition', () => {

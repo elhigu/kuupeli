@@ -26,3 +26,13 @@ jobs:
 
       - name: Run CI test gate
         run: npm run ci
+
+      - name: Upload Playwright screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            test-results
+            playwright-report

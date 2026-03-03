@@ -11,8 +11,13 @@ const launchOptions = configuredExecutablePath || fallbackExecutablePath
 
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir: 'test-results',
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    screenshot: 'on',
+    trace: 'retain-on-failure',
+    video: 'retain-on-failure',
     ...(launchOptions ? { launchOptions } : {})
   },
   webServer: {
