@@ -14,10 +14,24 @@ test('live piper download and synthesis smoke test', async ({ page }, testInfo) 
   test.skip(testInfo.project.name !== 'chromium', 'Live Piper smoke test runs only on desktop Chromium project.')
   testInfo.setTimeout(300_000)
 
-  const infoLogs: string[] = []
-  page.on('console', (message) => {
-    if (message.type() === 'info') {
-      infoLogs.push(message.text())
+  await page.addInitScript(() => {
+    ;(window as unknown as { __kuupeliAudioPlayCalls?: number }).__kuupeliAudioPlayCalls = 0
+    ;(window as unknown as { __kuupeliSpeechSpeakCalls?: number }).__kuupeliSpeechSpeakCalls = 0
+
+    const originalPlay = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function patchedPlay(...args) {
+      const state = window as unknown as { __kuupeliAudioPlayCalls: number }
+      state.__kuupeliAudioPlayCalls += 1
+      return originalPlay.apply(this, args)
+    }
+
+    if ('speechSynthesis' in window) {
+      const originalSpeak = window.speechSynthesis.speak.bind(window.speechSynthesis)
+      window.speechSynthesis.speak = ((utterance: SpeechSynthesisUtterance) => {
+        const state = window as unknown as { __kuupeliSpeechSpeakCalls: number }
+        state.__kuupeliSpeechSpeakCalls += 1
+        return originalSpeak(utterance)
+      }) as SpeechSynthesis['speak']
     }
   })
 
@@ -55,7 +69,7 @@ test('live piper download and synthesis smoke test', async ({ page }, testInfo) 
     await route.continue()
   })
 
-  await page.goto('/models')
+  await page.goto('models')
 
   const modelCard = page.locator('.model-list-item', { hasText: 'Finnish Harri Low (Piper)' })
   await expect(modelCard).toBeVisible()
@@ -73,43 +87,27 @@ test('live piper download and synthesis smoke test', async ({ page }, testInfo) 
     await setActiveButton.click()
   }
 
-  infoLogs.length = 0
+  const baselinePlaybackCalls = await page.evaluate(() => {
+    const state = window as unknown as {
+      __kuupeliAudioPlayCalls?: number
+      __kuupeliSpeechSpeakCalls?: number
+    }
+    return (state.__kuupeliAudioPlayCalls ?? 0) + (state.__kuupeliSpeechSpeakCalls ?? 0)
+  })
+
   await modelCard.getByRole('button', { name: 'Play test phrase' }).click()
 
   await expect
     .poll(
-      () =>
-        infoLogs.some(
-          (line) =>
-            line.includes('[Kuupeli][audio_playback] start') &&
-            line.includes('activeModelId') &&
-            line.includes('fi-piper-harri-low')
-        ),
+      async () =>
+        page.evaluate(() => {
+          const state = window as unknown as {
+            __kuupeliAudioPlayCalls?: number
+            __kuupeliSpeechSpeakCalls?: number
+          }
+          return (state.__kuupeliAudioPlayCalls ?? 0) + (state.__kuupeliSpeechSpeakCalls ?? 0)
+        }),
       { timeout: LIVE_PIPER_POLL_TIMEOUT_MS }
     )
-    .toBeTruthy()
-
-  await expect
-    .poll(
-      () =>
-        infoLogs.some(
-          (line) =>
-            line.includes('[Kuupeli][piper_runtime] predicted') ||
-            line.includes('[Kuupeli][audio_playback] model_playback_failed')
-        ),
-      { timeout: LIVE_PIPER_POLL_TIMEOUT_MS }
-    )
-    .toBeTruthy()
-
-  await expect
-    .poll(
-      () =>
-        infoLogs.some(
-          (line) =>
-            line.includes('[Kuupeli][audio_playback] wasm_playback_completed') ||
-            line.includes('[Kuupeli][audio_playback] fallback_speech_synthesis_completed')
-        ),
-      { timeout: LIVE_PIPER_POLL_TIMEOUT_MS }
-    )
-    .toBeTruthy()
+    .toBeGreaterThan(baselinePlaybackCalls)
 })

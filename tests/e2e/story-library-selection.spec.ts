@@ -1,7 +1,7 @@
 import { expect, test } from './guardedTest'
 
 test('imported story can be selected from start modal', async ({ page }) => {
-  await page.goto('/stories')
+  await page.goto('stories')
 
   await page.getByLabel('Import File').setInputFiles('tests/fixtures/story-library-sample.txt')
   await expect(page.getByText('story-library-sample')).toBeVisible()

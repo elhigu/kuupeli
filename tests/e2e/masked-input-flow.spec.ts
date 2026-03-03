@@ -1,7 +1,7 @@
 import { expect, test } from './guardedTest'
 
 test('typing contiguous letters fills masked sentence across spaces', async ({ page }) => {
-  await page.goto('/play')
+  await page.goto('play')
   await page.getByRole('button', { name: 'Aloita' }).click()
 
   const composer = page.getByLabel('Sentence answer input')
