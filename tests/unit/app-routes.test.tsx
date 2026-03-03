@@ -11,6 +11,6 @@ describe('App routes', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByRole('heading', { name: /stories/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Stories' })).toBeInTheDocument()
   })
 })

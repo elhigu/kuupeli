@@ -19,3 +19,9 @@ export async function getProgress(packId: string): Promise<SessionProgress | und
   })
   return progress
 }
+
+export async function removeProgress(packId: string): Promise<void> {
+  const db = await getDb()
+  await db.delete('progress', packId)
+  logEvent('db_progress', 'removed', { packId })
+}

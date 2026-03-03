@@ -3,7 +3,10 @@ import { MaskedSentenceComposer, type MaskedSentenceComposerValue } from './comp
 import { ReplayButton } from './components/ReplayButton'
 import { StartModal } from './components/StartModal'
 import { SubmitButton } from './components/SubmitButton'
-import { STARTER_SENTENCES } from './data/starterSentences'
+import { getProgress, saveProgress } from './db/repositories/progressRepo'
+import { listTrainingPacks } from './db/repositories/trainingPackRepo'
+import type { TrainingPack } from './db/schema'
+import { DEFAULT_STORY, DEFAULT_STORY_ID } from './data/defaultStory'
 import { logError, logEvent } from './observability/devLogger'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
@@ -44,10 +47,21 @@ function shouldDeferAutoplayForGesture(): boolean {
   return !navigator.userActivation.hasBeenActive
 }
 
+function clampSentenceIndex(index: number, sentenceCount: number): number {
+  if (sentenceCount <= 0) {
+    return 0
+  }
+
+  return Math.max(0, Math.min(index, sentenceCount - 1))
+}
+
 export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => readPersistedTheme())
+  const [stories, setStories] = useState<TrainingPack[]>([DEFAULT_STORY])
+  const [progressByStoryId, setProgressByStoryId] = useState<Record<string, number>>({})
+  const [activeStoryId, setActiveStoryId] = useState(DEFAULT_STORY_ID)
+  const [selectedStoryId, setSelectedStoryId] = useState(DEFAULT_STORY_ID)
   const [sentenceIndex, setSentenceIndex] = useState(0)
-  const currentSentence = STARTER_SENTENCES[sentenceIndex]
   const [maskValue, setMaskValue] = useState<MaskedSentenceComposerValue>(EMPTY_MASK_VALUE)
   const [attemptCount, setAttemptCount] = useState(0)
   const [stars, setStars] = useState<1 | 2 | 3 | null>(null)
@@ -61,6 +75,14 @@ export default function App() {
   const transitionTimerRef = useRef<number | null>(null)
   const lastAutoplayKeyRef = useRef<string | null>(null)
 
+  const activeStory = useMemo(
+    () => stories.find((story) => story.id === activeStoryId) ?? DEFAULT_STORY,
+    [activeStoryId, stories]
+  )
+  const currentSentences = activeStory.sentences
+  const sentenceCount = currentSentences.length
+  const currentSentence = currentSentences[sentenceIndex] ?? currentSentences[0] ?? ''
+
   const targetWords = useMemo(
     () => currentSentence.split(/\s+/).map((word) => normalizeWord(word)).filter(Boolean),
     [currentSentence]
@@ -69,6 +91,55 @@ export default function App() {
   const isComplete = stars !== null
   const isSubmitDisabled = !maskValue.isComplete || isAdvancing
   const isSkipDisabled = isAdvancing
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadStories = async () => {
+      try {
+        const customStories = await listTrainingPacks()
+        if (cancelled) {
+          return
+        }
+
+        const filteredStories = customStories.filter((story) => story.id !== DEFAULT_STORY_ID && story.sentences.length > 0)
+        const nextStories = [DEFAULT_STORY, ...filteredStories]
+        setStories(nextStories)
+        setSelectedStoryId((current) => (nextStories.some((story) => story.id === current) ? current : DEFAULT_STORY_ID))
+        setActiveStoryId((current) => (nextStories.some((story) => story.id === current) ? current : DEFAULT_STORY_ID))
+
+        const progressEntries = await Promise.all(
+          nextStories.map(async (story) => {
+            const progress = await getProgress(story.id)
+            return [story.id, progress?.sentenceIndex ?? 0] as const
+          })
+        )
+        if (cancelled) {
+          return
+        }
+
+        setProgressByStoryId(Object.fromEntries(progressEntries))
+        logEvent('stories', 'loaded', {
+          storyCount: nextStories.length,
+          customStoryCount: filteredStories.length
+        })
+      } catch (error) {
+        if (!cancelled) {
+          logError('stories', 'load_failed', error)
+        }
+      }
+    }
+
+    void loadStories()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    setSentenceIndex((current) => clampSentenceIndex(current, sentenceCount))
+  }, [sentenceCount])
 
   useEffect(() => {
     logEvent('theme', 'applying_theme', { theme })
@@ -98,12 +169,14 @@ export default function App() {
     }
 
     logEvent('round', 'loaded', {
+      storyId: activeStory.id,
+      storyTitle: activeStory.title,
       sentenceIndex,
-      sentenceCount: STARTER_SENTENCES.length,
+      sentenceCount,
       targetWordCount: targetWords.length,
       sentence: currentSentence
     })
-  }, [currentSentence, sentenceIndex, targetWords.length])
+  }, [activeStory.id, activeStory.title, currentSentence, sentenceCount, sentenceIndex, targetWords.length])
 
   useEffect(() => {
     if (!hasSessionStarted) {
@@ -114,13 +187,42 @@ export default function App() {
   }, [currentSentence, hasSessionStarted, sentenceIndex])
 
   useEffect(() => {
+    if (!hasSessionStarted || sentenceCount === 0) {
+      return
+    }
+
+    const clampedIndex = clampSentenceIndex(sentenceIndex, sentenceCount)
+    setProgressByStoryId((current) => {
+      if (current[activeStory.id] === clampedIndex) {
+        return current
+      }
+
+      return {
+        ...current,
+        [activeStory.id]: clampedIndex
+      }
+    })
+
+    void saveProgress({
+      packId: activeStory.id,
+      sentenceIndex: clampedIndex,
+      updatedAt: new Date().toISOString()
+    }).catch((error) => {
+      logError('progress', 'save_failed', error, {
+        packId: activeStory.id,
+        sentenceIndex: clampedIndex
+      })
+    })
+  }, [activeStory.id, hasSessionStarted, sentenceCount, sentenceIndex])
+
+  useEffect(() => {
     if (!isAdvancing) {
       return
     }
 
     transitionTimerRef.current = window.setTimeout(() => {
       transitionTimerRef.current = null
-      if (sentenceIndex >= STARTER_SENTENCES.length - 1) {
+      if (sentenceIndex >= sentenceCount - 1) {
         setIsAdvancing(false)
         logEvent('round', 'success_transition_completed_last_sentence', {
           sentenceIndex,
@@ -129,7 +231,7 @@ export default function App() {
         return
       }
 
-      setSentenceIndex((current) => Math.min(current + 1, STARTER_SENTENCES.length - 1))
+      setSentenceIndex((current) => Math.min(current + 1, sentenceCount - 1))
       logEvent('round', 'auto_advanced_after_success', {
         fromSentenceIndex: sentenceIndex,
         toSentenceIndex: sentenceIndex + 1,
@@ -143,10 +245,10 @@ export default function App() {
         transitionTimerRef.current = null
       }
     }
-  }, [isAdvancing, sentenceIndex])
+  }, [isAdvancing, sentenceCount, sentenceIndex])
 
   useEffect(() => {
-    if (!hasSessionStarted) {
+    if (!hasSessionStarted || !currentSentence) {
       return
     }
 
@@ -155,7 +257,7 @@ export default function App() {
       return
     }
 
-    const autoplayKey = `${sentenceIndex}:${currentSentence}`
+    const autoplayKey = `${activeStory.id}:${sentenceIndex}:${currentSentence}`
     if (lastAutoplayKeyRef.current === autoplayKey) {
       logEvent('audio', 'autoplay_skipped_duplicate_effect', { sentenceIndex })
       return
@@ -185,7 +287,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [currentSentence, hasSessionStarted, sentenceIndex])
+  }, [activeStory.id, currentSentence, hasSessionStarted, sentenceIndex])
 
   useEffect(() => {
     return () => {
@@ -242,6 +344,10 @@ export default function App() {
   }
 
   async function handleReplay() {
+    if (!currentSentence) {
+      return
+    }
+
     setFocusSignal((current) => current + 1)
     logEvent('audio', 'replay_clicked', { sentenceIndex })
 
@@ -261,7 +367,7 @@ export default function App() {
       return
     }
 
-    if (sentenceIndex < STARTER_SENTENCES.length - 1) {
+    if (sentenceIndex < sentenceCount - 1) {
       logEvent('round', isComplete ? 'next_sentence_clicked' : 'skip_sentence_clicked', {
         fromSentenceIndex: sentenceIndex,
         toSentenceIndex: sentenceIndex + 1
@@ -274,10 +380,21 @@ export default function App() {
   }
 
   function handleStartSession() {
+    const storyId = selectedStoryId
+    const selectedStory = stories.find((story) => story.id === storyId) ?? DEFAULT_STORY
+    const resumeIndex = clampSentenceIndex(progressByStoryId[storyId] ?? 0, selectedStory.sentences.length)
+
+    lastAutoplayKeyRef.current = null
     setIsStartModalOpen(false)
     setHasSessionStarted(true)
+    setActiveStoryId(storyId)
+    setSentenceIndex(resumeIndex)
     setFocusSignal((current) => current + 1)
-    logEvent('session', 'start_clicked', { sentenceIndex })
+    logEvent('session', 'start_clicked', {
+      storyId,
+      storyTitle: selectedStory.title,
+      sentenceIndex: resumeIndex
+    })
   }
 
   const handleMaskValueChange = useCallback(
@@ -335,7 +452,7 @@ export default function App() {
         </div>
       </header>
       <p aria-live="polite">
-        Starter Pack: {sentenceIndex + 1}/{STARTER_SENTENCES.length}
+        {activeStory.title}: {Math.min(sentenceIndex + 1, sentenceCount)}/{sentenceCount}
       </p>
 
       <section className={`round-panel${isAdvancing ? ' round-panel-success' : ''}`}>
@@ -373,7 +490,7 @@ export default function App() {
             }}
           />
 
-          {sentenceIndex < STARTER_SENTENCES.length - 1 && (
+          {sentenceIndex < sentenceCount - 1 && (
             <button type="button" className="skip-sentence-button" onClick={handleNextSentence} disabled={isSkipDisabled}>
               Skip sentence
             </button>
@@ -386,7 +503,19 @@ export default function App() {
         )}
       </section>
 
-      {isStartModalOpen && <StartModal onStart={handleStartSession} />}
+      {isStartModalOpen && (
+        <StartModal
+          stories={stories.map((story) => ({
+            id: story.id,
+            title: story.title,
+            sentenceCount: story.sentences.length,
+            resumeIndex: progressByStoryId[story.id] ?? 0
+          }))}
+          selectedStoryId={selectedStoryId}
+          onSelectStory={setSelectedStoryId}
+          onStart={handleStartSession}
+        />
+      )}
     </main>
   )
 }

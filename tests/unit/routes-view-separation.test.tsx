@@ -23,7 +23,7 @@ describe('Route view separation', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByRole('heading', { name: /stories/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Stories' })).toBeInTheDocument()
     expect(screen.getByLabelText(/import file/i)).toBeInTheDocument()
   })
 
