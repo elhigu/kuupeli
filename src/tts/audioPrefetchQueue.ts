@@ -8,6 +8,7 @@ function cacheKey(sentence: string, voice: string): string {
 
 export class AudioPrefetchQueue {
   private readonly cache = new ClipCache()
+  private readonly inFlight = new Map<string, Promise<ArrayBuffer>>()
 
   async prefetch(sentence: string, voice = 'fi'): Promise<ArrayBuffer> {
     const key = cacheKey(sentence, voice)
@@ -17,15 +18,30 @@ export class AudioPrefetchQueue {
       return existing
     }
 
+    const pending = this.inFlight.get(key)
+    if (pending) {
+      logEvent('audio_prefetch', 'inflight_hit', { sentenceLength: sentence.length, voice })
+      return pending
+    }
+
     logEvent('audio_prefetch', 'cache_miss_generate', { sentenceLength: sentence.length, voice })
-    const generated = await synthesizeSentence(sentence, { voice })
-    this.cache.set(key, generated)
-    logEvent('audio_prefetch', 'generated_and_cached', {
-      sentenceLength: sentence.length,
-      clipBytes: generated.byteLength,
-      voice
-    })
-    return generated
+    const generation = (async () => {
+      const generated = await synthesizeSentence(sentence, { voice })
+      this.cache.set(key, generated)
+      logEvent('audio_prefetch', 'generated_and_cached', {
+        sentenceLength: sentence.length,
+        clipBytes: generated.byteLength,
+        voice
+      })
+      return generated
+    })()
+
+    this.inFlight.set(key, generation)
+    try {
+      return await generation
+    } finally {
+      this.inFlight.delete(key)
+    }
   }
 
   has(sentence: string, voice = 'fi'): boolean {
@@ -38,6 +54,7 @@ export class AudioPrefetchQueue {
 
   clear() {
     this.cache.clear()
+    this.inFlight.clear()
   }
 }
 
