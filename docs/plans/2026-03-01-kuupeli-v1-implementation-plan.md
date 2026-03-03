@@ -736,3 +736,77 @@ Expected: PASS.
 git add package.json .github/workflows/ci.yml tests/unit/ci-script.test.ts
 git commit -m "chore: enforce ci verification gate for unit and e2e tests"
 ```
+
+### Task 17: GitHub Pages Deployment
+
+**Linear:** `KUU-22`
+
+**Files:**
+- Modify: `vite.config.ts`
+- Create: `.github/workflows/deploy-pages.yml`
+- Modify: `README.md`
+- Create: `tests/unit/github-pages-deploy.test.ts`
+
+**Step 1: Write the failing test**
+
+```ts
+import fs from 'node:fs'
+
+it('defines gh-pages deployment workflow for dist publishing', () => {
+  const workflow = fs.readFileSync('.github/workflows/deploy-pages.yml', 'utf8')
+  expect(workflow).toMatch(/push:/)
+  expect(workflow).toMatch(/branches:\\s*\\n\\s*- main/)
+  expect(workflow).toMatch(/github-pages-deploy-action/)
+  expect(workflow).toMatch(/branch: gh-pages/)
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `npm run test:unit -- tests/unit/github-pages-deploy.test.ts`
+Expected: FAIL until merge-to-main deployment workflow is configured.
+
+**Step 3: Write minimal implementation**
+
+```ts
+// vite.config.ts
+// Configure GitHub Pages project base path (for example, '/kuupeli/').
+```
+
+```yaml
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npm run build
+      - uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+```
+
+```md
+## GitHub Pages Deployment
+- Every merge/push to `main` triggers an automated deploy workflow.
+- The workflow builds the app and pushes `dist/` contents to `gh-pages`.
+- Open the Pages URL and verify static assets + app shell load correctly.
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `npm run test:unit -- tests/unit/github-pages-deploy.test.ts`
+Expected: PASS.
+
+**Step 5: Commit**
+
+```bash
+git add vite.config.ts .github/workflows/deploy-pages.yml README.md tests/unit/github-pages-deploy.test.ts
+git commit -m "feat: auto-deploy gh-pages branch after merges to main"
+```
