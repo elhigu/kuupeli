@@ -1,10 +1,19 @@
 import { MODEL_CATALOG, type ModelCatalogEntry } from './catalog'
 import { logError, logEvent } from '../observability/devLogger'
 import { storageRecoveryGuidance } from '../storage/storageGuidance'
+import { downloadPiperVoice, removePiperVoice } from '../tts/piperWebRuntime'
 
-const STORAGE_KEY = 'kuupeli-installed-models'
-const ACTIVE_MODEL_KEY = 'kuupeli-active-model'
+const INSTALLED_STORAGE_KEY = 'kuupeli-installed-models'
+const ACTIVE_MODEL_STORAGE_KEY = 'kuupeli-active-model'
+const MODEL_VOICE_STORAGE_KEY = 'kuupeli-model-voice-types'
 const DEFAULT_MODEL = 'fi-starter-small'
+
+type VoiceTypeMap = Record<string, string>
+export type InstallProgress = {
+  loaded: number
+  total: number
+  percent: number
+}
 
 function readStorageItem(key: string): string | null {
   try {
@@ -24,23 +33,64 @@ function writeStorageItem(key: string, value: string) {
   }
 }
 
+function bundledModelIds(): string[] {
+  return MODEL_CATALOG.filter((model) => model.installMode === 'bundled').map((model) => model.id)
+}
+
+function getModelByIdUnsafe(modelId: string): ModelCatalogEntry {
+  const model = MODEL_CATALOG.find((item) => item.id === modelId)
+  if (!model) {
+    throw new Error(`Unsupported model: ${modelId}`)
+  }
+
+  return model
+}
+
 function readInstalledModelIds(): string[] {
-  const raw = readStorageItem(STORAGE_KEY)
+  const bundled = bundledModelIds()
+  const raw = readStorageItem(INSTALLED_STORAGE_KEY)
 
   if (!raw) {
-    return [DEFAULT_MODEL]
+    return bundled
   }
 
   try {
     const parsed = JSON.parse(raw) as string[]
-    return parsed.length > 0 ? parsed : [DEFAULT_MODEL]
+    const all = new Set([...bundled, ...parsed])
+    return Array.from(all).filter((id) => MODEL_CATALOG.some((model) => model.id === id))
   } catch {
-    return [DEFAULT_MODEL]
+    return bundled
   }
 }
 
 function writeInstalledModelIds(ids: string[]) {
-  writeStorageItem(STORAGE_KEY, JSON.stringify(Array.from(new Set(ids))))
+  writeStorageItem(INSTALLED_STORAGE_KEY, JSON.stringify(Array.from(new Set(ids))))
+}
+
+function readVoiceTypeMap(): VoiceTypeMap {
+  const raw = readStorageItem(MODEL_VOICE_STORAGE_KEY)
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(raw) as VoiceTypeMap
+  } catch {
+    return {}
+  }
+}
+
+function writeVoiceTypeMap(map: VoiceTypeMap) {
+  writeStorageItem(MODEL_VOICE_STORAGE_KEY, JSON.stringify(map))
+}
+
+export function getModelById(modelId: string): ModelCatalogEntry | undefined {
+  return MODEL_CATALOG.find((item) => item.id === modelId)
+}
+
+export async function listAvailableModels(): Promise<ModelCatalogEntry[]> {
+  logEvent('models_store', 'available_listed', { count: MODEL_CATALOG.length })
+  return MODEL_CATALOG
 }
 
 export async function listModels(): Promise<ModelCatalogEntry[]> {
@@ -50,24 +100,47 @@ export async function listModels(): Promise<ModelCatalogEntry[]> {
   return models
 }
 
-export async function installModel(modelId: string): Promise<void> {
+export async function installModel(modelId: string, onProgress?: (progress: InstallProgress) => void): Promise<void> {
+  const model = getModelByIdUnsafe(modelId)
+
+  if (model.installMode === 'download') {
+    if (!model.piperVoiceId) {
+      throw new Error(`Download model missing piper voice id: ${modelId}`)
+    }
+
+    await downloadPiperVoice(model.piperVoiceId, (progress) => {
+      const percent = progress.total > 0 ? Math.round((progress.loaded * 100) / progress.total) : 0
+      onProgress?.({ ...progress, percent })
+    })
+  }
+
   const installed = readInstalledModelIds()
   writeInstalledModelIds([...installed, modelId])
-  logEvent('models_store', 'installed', { modelId })
+  logEvent('models_store', 'installed', { modelId, engine: model.engine })
 
-  if (!readStorageItem(ACTIVE_MODEL_KEY)) {
-    writeStorageItem(ACTIVE_MODEL_KEY, modelId)
+  if (!readStorageItem(ACTIVE_MODEL_STORAGE_KEY)) {
+    writeStorageItem(ACTIVE_MODEL_STORAGE_KEY, modelId)
     logEvent('models_store', 'active_auto_set', { modelId })
   }
 }
 
 export async function removeModel(modelId: string): Promise<void> {
-  const installed = readInstalledModelIds().filter((id) => id !== modelId)
-  writeInstalledModelIds(installed.length > 0 ? installed : [DEFAULT_MODEL])
-  logEvent('models_store', 'removed', { modelId })
+  const model = getModelByIdUnsafe(modelId)
 
-  if (readStorageItem(ACTIVE_MODEL_KEY) === modelId) {
-    writeStorageItem(ACTIVE_MODEL_KEY, DEFAULT_MODEL)
+  if (model.installMode === 'bundled') {
+    throw new Error('Bundled model cannot be removed')
+  }
+
+  if (model.piperVoiceId) {
+    await removePiperVoice(model.piperVoiceId)
+  }
+
+  const installed = readInstalledModelIds().filter((id) => id !== modelId)
+  writeInstalledModelIds(installed)
+  logEvent('models_store', 'removed', { modelId, engine: model.engine })
+
+  if (readStorageItem(ACTIVE_MODEL_STORAGE_KEY) === modelId) {
+    writeStorageItem(ACTIVE_MODEL_STORAGE_KEY, DEFAULT_MODEL)
     logEvent('models_store', 'active_reset_to_default', { modelId: DEFAULT_MODEL })
   }
 }
@@ -79,13 +152,45 @@ export async function setActiveModel(modelId: string): Promise<void> {
     throw new Error(`Model not installed: ${modelId}`)
   }
 
-  writeStorageItem(ACTIVE_MODEL_KEY, modelId)
+  writeStorageItem(ACTIVE_MODEL_STORAGE_KEY, modelId)
   logEvent('models_store', 'active_set', { modelId })
 }
 
 export async function getActiveModel(): Promise<string> {
-  const active = readStorageItem(ACTIVE_MODEL_KEY)
+  const active = readStorageItem(ACTIVE_MODEL_STORAGE_KEY)
   const activeModel = active ?? DEFAULT_MODEL
   logEvent('models_store', 'active_read', { modelId: activeModel })
   return activeModel
+}
+
+export async function setModelVoiceType(modelId: string, voiceTypeId: string): Promise<void> {
+  const model = getModelByIdUnsafe(modelId)
+  const isValid = model.voiceTypes.some((option) => option.id === voiceTypeId)
+  if (!isValid) {
+    throw new Error(`Unsupported voice type ${voiceTypeId} for model ${modelId}`)
+  }
+
+  const current = readVoiceTypeMap()
+  current[modelId] = voiceTypeId
+  writeVoiceTypeMap(current)
+  logEvent('models_store', 'voice_type_set', { modelId, voiceTypeId })
+}
+
+export async function getModelVoiceType(modelId: string): Promise<string> {
+  const model = getModelByIdUnsafe(modelId)
+  const current = readVoiceTypeMap()
+  const configured = current[modelId]
+  if (configured && model.voiceTypes.some((option) => option.id === configured)) {
+    return configured
+  }
+
+  const defaultVoiceTypeId = model.voiceTypes[0]?.id ?? 'default'
+  if (configured && configured !== defaultVoiceTypeId) {
+    logError('models_store', 'voice_type_invalid_fallback', new Error('Invalid voice type'), {
+      modelId,
+      configured,
+      defaultVoiceTypeId
+    })
+  }
+  return defaultVoiceTypeId
 }

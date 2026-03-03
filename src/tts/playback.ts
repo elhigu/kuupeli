@@ -1,5 +1,6 @@
-import { getActiveModel } from '../models/modelManager'
+import { getActiveModel, getModelById, getModelVoiceType } from '../models/modelManager'
 import { logEvent } from '../observability/devLogger'
+import { predictPiperVoice } from './piperWebRuntime'
 import { synthesizeSentence } from './ttsRuntime'
 
 export interface PlaybackOptions {
@@ -9,13 +10,9 @@ export interface PlaybackOptions {
   volume?: number
 }
 
-const MODEL_TO_VOICE: Record<string, string> = {
-  'fi-starter-small': 'fi',
-  'fi-balanced-medium': 'fi'
-}
-
-function getVoiceForModel(modelId: string): string {
-  return MODEL_TO_VOICE[modelId] ?? 'fi'
+export interface PlaybackModelOverride {
+  modelId: string
+  voiceTypeId?: string
 }
 
 function playWavBuffer(buffer: ArrayBuffer): Promise<void> {
@@ -82,26 +79,62 @@ function playSpeechSynthesisFallback(text: string, options: PlaybackOptions = {}
   })
 }
 
-export async function playSentenceAudio(text: string, options: PlaybackOptions = {}): Promise<void> {
-  const activeModelId = await getActiveModel()
-  const voice = getVoiceForModel(activeModelId)
+async function synthesizeFromSelection(text: string, modelId: string, voiceTypeId?: string): Promise<ArrayBuffer> {
+  const model = getModelById(modelId)
+  if (!model) {
+    throw new Error(`Unknown model id: ${modelId}`)
+  }
+
+  if (model.engine === 'piper-web') {
+    if (!model.piperVoiceId) {
+      throw new Error(`Piper model missing voice id: ${modelId}`)
+    }
+    return predictPiperVoice(model.piperVoiceId, text)
+  }
+
+  const selected = model.voiceTypes.find((option) => option.id === voiceTypeId) ?? model.voiceTypes[0]
+  return synthesizeSentence(text, { voice: selected?.runtimeVoice ?? 'fi' })
+}
+
+export async function playSentenceAudioWithModel(
+  text: string,
+  override: PlaybackModelOverride,
+  options: PlaybackOptions = {}
+): Promise<void> {
+  const model = getModelById(override.modelId)
+  const voiceTypeId = override.voiceTypeId ?? (await getModelVoiceType(override.modelId))
 
   logEvent('audio_playback', 'start', {
     textLength: text.length,
     sentence: text,
-    activeModelId,
-    voice
+    activeModelId: override.modelId,
+    engine: model?.engine ?? 'unknown',
+    voiceTypeId
   })
 
   try {
-    const wavBuffer = await synthesizeSentence(text, { voice })
-    logEvent('audio_playback', 'wasm_synthesized', { bytes: wavBuffer.byteLength, voice })
+    const wavBuffer = await synthesizeFromSelection(text, override.modelId, voiceTypeId)
+    logEvent('audio_playback', 'synthesized', {
+      bytes: wavBuffer.byteLength,
+      activeModelId: override.modelId,
+      engine: model?.engine ?? 'unknown'
+    })
+    logEvent('audio_playback', 'wasm_synthesized', {
+      bytes: wavBuffer.byteLength,
+      activeModelId: override.modelId,
+      engine: model?.engine ?? 'unknown'
+    })
     await playWavBuffer(wavBuffer)
-    logEvent('audio_playback', 'wasm_playback_completed', { voice })
+    logEvent('audio_playback', 'playback_completed', {
+      activeModelId: override.modelId
+    })
+    logEvent('audio_playback', 'wasm_playback_completed', {
+      activeModelId: override.modelId
+    })
     return
   } catch (error) {
-    logEvent('audio_playback', 'wasm_playback_failed', {
-      voice,
+    logEvent('audio_playback', 'model_playback_failed', {
+      activeModelId: override.modelId,
       reason: describeError(error)
     })
   }
@@ -112,4 +145,9 @@ export async function playSentenceAudio(text: string, options: PlaybackOptions =
 
   await playSpeechSynthesisFallback(text, options)
   logEvent('audio_playback', 'fallback_speech_synthesis_completed')
+}
+
+export async function playSentenceAudio(text: string, options: PlaybackOptions = {}): Promise<void> {
+  const activeModelId = await getActiveModel()
+  await playSentenceAudioWithModel(text, { modelId: activeModelId }, options)
 }

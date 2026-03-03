@@ -12,6 +12,10 @@
 - Always create a new feature branch from the latest `main`.
 - Keep each branch and PR small, focused, and reviewable.
 - All PRs must target `main`.
+- While there is approved work left in project plans or Linear tickets, continue implementation in feature-sized batches:
+  - implement one focused feature on its own branch,
+  - open/update a PR for that feature,
+  - then pick the next approved item and start a new branch from latest `main`.
 - If `main` changes while a PR is under review, rebase the feature branch onto latest `main`.
 - After rebasing, push updates with `--force-with-lease`.
 - Independent features can be developed in parallel on separate branches.

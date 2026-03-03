@@ -4,8 +4,11 @@ Offline-first standalone PWA for Finnish dictation practice.
 
 ## Model Manager Note
 
-In v1, Model Manager entries are local Kuupeli runtime profiles (quality/speed presets stored on device). They are
-not external downloadable cloud models yet.
+Kuupeli Model Manager supports:
+- bundled `espeak-ng` Finnish voices (available immediately)
+- downloadable Finnish Piper voices (`fi_FI-harri-low`, `fi_FI-harri-medium`) stored locally on device
+
+Each installed model can be set active, voice type can be selected where applicable, and a local test phrase can be played.
 
 ## Development
 
