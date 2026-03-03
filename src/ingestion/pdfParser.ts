@@ -31,8 +31,7 @@ export async function parsePdfFile(file: File): Promise<string> {
   const bytes = typeof file.arrayBuffer === 'function' ? await file.arrayBuffer() : await readAsArrayBufferWithFileReader(file)
   const pdfjs = await getPdfJsModule()
   const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(bytes),
-    disableWorker: true
+    data: new Uint8Array(bytes)
   })
   const documentProxy = await loadingTask.promise
   const pages: string[] = []
