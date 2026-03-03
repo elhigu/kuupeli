@@ -7,6 +7,7 @@ import { getProgress, saveProgress } from './db/repositories/progressRepo'
 import { listTrainingPacks } from './db/repositories/trainingPackRepo'
 import type { TrainingPack } from './db/schema'
 import { DEFAULT_STORY, DEFAULT_STORY_ID } from './data/defaultStory'
+import { getActiveModel, getModelById, getModelVoiceType } from './models/modelManager'
 import { preloadTestingModelIfNeeded } from './models/testModelPreload'
 import { logError, logEvent } from './observability/devLogger'
 import { findInvalidWords } from './scoring/retryEvaluator'
@@ -230,13 +231,35 @@ export default function App() {
 
     const prefetchNextSentence = async () => {
       try {
-        const clip = await prefetchSentenceClip(nextSentence)
+        const activeModelId = await getActiveModel()
+        const model = getModelById(activeModelId)
+        if (!model || model.engine !== 'espeak-ng') {
+          if (!cancelled) {
+            logEvent('audio_prefetch', 'next_sentence_skipped_non_espeak_model', {
+              storyId: activeStory.id,
+              fromSentenceIndex: sentenceIndex,
+              targetSentenceIndex: sentenceIndex + 1,
+              activeModelId
+            })
+          }
+          return
+        }
+
+        const selectedVoiceTypeId = await getModelVoiceType(activeModelId)
+        const selectedVoice =
+          model.voiceTypes.find((option) => option.id === selectedVoiceTypeId)?.runtimeVoice ??
+          model.voiceTypes[0]?.runtimeVoice ??
+          'fi'
+
+        const clip = await prefetchSentenceClip(nextSentence, selectedVoice)
         if (!cancelled) {
           logEvent('audio_prefetch', 'next_sentence_prefetched', {
             storyId: activeStory.id,
             fromSentenceIndex: sentenceIndex,
             targetSentenceIndex: sentenceIndex + 1,
-            clipBytes: clip.byteLength
+            clipBytes: clip.byteLength,
+            activeModelId,
+            voice: selectedVoice
           })
         }
       } catch (error) {

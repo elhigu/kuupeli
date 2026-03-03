@@ -20,4 +20,11 @@ describe('Audio prefetch queue', () => {
     expect(getPrefetchedSentenceClip('Sitten tuli ilta.')).toBeDefined()
     expect(synthesizeSentence).toHaveBeenCalledTimes(1)
   })
+
+  it('deduplicates concurrent prefetch requests for same sentence and voice', async () => {
+    await Promise.all([prefetchSentenceClip('Olipa kerran.'), prefetchSentenceClip('Olipa kerran.')])
+
+    expect(getPrefetchedSentenceClip('Olipa kerran.')).toBeDefined()
+    expect(synthesizeSentence).toHaveBeenCalledTimes(1)
+  })
 })
