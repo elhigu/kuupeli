@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ImportControls } from './components/ImportControls'
-import { MaskedSentenceInput } from './components/MaskedSentenceInput'
-import { ModelManagerPanel } from './components/ModelManagerPanel'
-import { logError, logEvent } from './observability/devLogger'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MaskedSentenceComposer, type MaskedSentenceComposerValue } from './components/MaskedSentenceComposer'
 import { ReplayButton } from './components/ReplayButton'
+import { StartModal } from './components/StartModal'
 import { SubmitButton } from './components/SubmitButton'
 import { STARTER_SENTENCES } from './data/starterSentences'
+import { logError, logEvent } from './observability/devLogger'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { playSentenceAudio } from './tts/playback'
 
 type ThemeMode = 'dark' | 'light'
 const THEME_STORAGE_KEY = 'kuupeli-theme'
+const SUCCESS_ADVANCE_DELAY_MS = 700
+
+const EMPTY_MASK_VALUE: MaskedSentenceComposerValue = {
+  compact: '',
+  spaced: '',
+  isComplete: false
+}
 
 function normalizeWord(word: string) {
   return word.toLocaleLowerCase('fi-FI').replace(/[.,!?;:()"']/g, '')
@@ -42,20 +48,27 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => readPersistedTheme())
   const [sentenceIndex, setSentenceIndex] = useState(0)
   const currentSentence = STARTER_SENTENCES[sentenceIndex]
+  const [maskValue, setMaskValue] = useState<MaskedSentenceComposerValue>(EMPTY_MASK_VALUE)
+  const [attemptCount, setAttemptCount] = useState(0)
+  const [stars, setStars] = useState<1 | 2 | 3 | null>(null)
+  const [invalidIndexes, setInvalidIndexes] = useState<number[]>([])
+  const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null)
+  const [audioError, setAudioError] = useState<string | null>(null)
+  const [isAdvancing, setIsAdvancing] = useState(false)
+  const [isStartModalOpen, setIsStartModalOpen] = useState(true)
+  const [hasSessionStarted, setHasSessionStarted] = useState(false)
+  const [focusSignal, setFocusSignal] = useState(0)
+  const transitionTimerRef = useRef<number | null>(null)
+  const lastAutoplayKeyRef = useRef<string | null>(null)
 
   const targetWords = useMemo(
     () => currentSentence.split(/\s+/).map((word) => normalizeWord(word)).filter(Boolean),
     [currentSentence]
   )
 
-  const [answers, setAnswers] = useState<string[]>(() => targetWords.map(() => ''))
-  const [attemptCount, setAttemptCount] = useState(0)
-  const [stars, setStars] = useState<1 | 2 | 3 | null>(null)
-  const [invalidIndexes, setInvalidIndexes] = useState<number[]>([])
-  const [replayCount, setReplayCount] = useState(0)
-  const [audioError, setAudioError] = useState<string | null>(null)
-
   const isComplete = stars !== null
+  const isSubmitDisabled = !maskValue.isComplete || isAdvancing
+  const isSkipDisabled = isAdvancing
 
   useEffect(() => {
     logEvent('theme', 'applying_theme', { theme })
@@ -71,22 +84,69 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    setAnswers(targetWords.map(() => ''))
+    setMaskValue(EMPTY_MASK_VALUE)
     setAttemptCount(0)
     setStars(null)
     setInvalidIndexes([])
+    setActiveWordIndex(null)
     setAudioError(null)
+    setIsAdvancing(false)
+
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current)
+      transitionTimerRef.current = null
+    }
+
     logEvent('round', 'loaded', {
       sentenceIndex,
       sentenceCount: STARTER_SENTENCES.length,
       targetWordCount: targetWords.length,
       sentence: currentSentence
     })
-  }, [targetWords])
+  }, [currentSentence, sentenceIndex, targetWords.length])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-      logEvent('audio', 'autoplay_skipped_api_unavailable')
+    if (!hasSessionStarted) {
+      return
+    }
+
+    setFocusSignal((current) => current + 1)
+  }, [currentSentence, hasSessionStarted, sentenceIndex])
+
+  useEffect(() => {
+    if (!isAdvancing) {
+      return
+    }
+
+    transitionTimerRef.current = window.setTimeout(() => {
+      transitionTimerRef.current = null
+      if (sentenceIndex >= STARTER_SENTENCES.length - 1) {
+        setIsAdvancing(false)
+        logEvent('round', 'success_transition_completed_last_sentence', {
+          sentenceIndex,
+          transitionDelayMs: SUCCESS_ADVANCE_DELAY_MS
+        })
+        return
+      }
+
+      setSentenceIndex((current) => Math.min(current + 1, STARTER_SENTENCES.length - 1))
+      logEvent('round', 'auto_advanced_after_success', {
+        fromSentenceIndex: sentenceIndex,
+        toSentenceIndex: sentenceIndex + 1,
+        transitionDelayMs: SUCCESS_ADVANCE_DELAY_MS
+      })
+    }, SUCCESS_ADVANCE_DELAY_MS)
+
+    return () => {
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current)
+        transitionTimerRef.current = null
+      }
+    }
+  }, [isAdvancing, sentenceIndex])
+
+  useEffect(() => {
+    if (!hasSessionStarted) {
       return
     }
 
@@ -95,6 +155,13 @@ export default function App() {
       return
     }
 
+    const autoplayKey = `${sentenceIndex}:${currentSentence}`
+    if (lastAutoplayKeyRef.current === autoplayKey) {
+      logEvent('audio', 'autoplay_skipped_duplicate_effect', { sentenceIndex })
+      return
+    }
+
+    lastAutoplayKeyRef.current = autoplayKey
     let cancelled = false
 
     const autoplayCurrentSentence = async () => {
@@ -107,11 +174,8 @@ export default function App() {
         }
       } catch (error) {
         if (!cancelled) {
-          setAudioError(null)
-          logEvent('audio', 'autoplay_failed', {
-            sentenceIndex,
-            reason: error instanceof Error ? error.message : 'Unknown error'
-          })
+          setAudioError('Audio playback is unavailable on this browser.')
+          logError('audio', 'autoplay_failed', error, { sentenceIndex })
         }
       }
     }
@@ -121,25 +185,43 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [currentSentence])
+  }, [currentSentence, hasSessionStarted, sentenceIndex])
 
-  function handleSubmit() {
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current)
+      }
+    }
+  }, [])
+
+  function submitAnswer(answer: string, source: 'button' | 'keyboard') {
+    if (isAdvancing) {
+      logEvent('round', 'submit_ignored_while_advancing', {
+        sentenceIndex,
+        source
+      })
+      return
+    }
+
     const nextAttempt = attemptCount + 1
     setAttemptCount(nextAttempt)
 
-    const actual = answers.map((word) => normalizeWord(word)).join(' ')
     const expected = targetWords.join(' ')
-    const invalid = findInvalidWords(expected, actual)
+    const invalid = findInvalidWords(expected, answer)
     logEvent('round', 'submitted', {
       sentenceIndex,
       attempt: nextAttempt,
-      invalidCount: invalid.length
+      invalidCount: invalid.length,
+      source
     })
 
     if (invalid.length === 0) {
       const nextStars = scoreStars(nextAttempt)
       setStars(nextStars)
       setInvalidIndexes([])
+      setActiveWordIndex(null)
+      setIsAdvancing(true)
       logEvent('round', 'completed', {
         sentenceIndex,
         attempt: nextAttempt,
@@ -150,6 +232,8 @@ export default function App() {
 
     setStars(null)
     setInvalidIndexes(invalid)
+    setActiveWordIndex(invalid[0] ?? null)
+    setIsAdvancing(false)
     logEvent('round', 'needs_retry', {
       sentenceIndex,
       attempt: nextAttempt,
@@ -158,30 +242,25 @@ export default function App() {
   }
 
   async function handleReplay() {
-    const nextReplayCount = replayCount + 1
-    setReplayCount(nextReplayCount)
-    logEvent('audio', 'replay_clicked', {
-      sentenceIndex,
-      replayCount: nextReplayCount
-    })
+    setFocusSignal((current) => current + 1)
+    logEvent('audio', 'replay_clicked', { sentenceIndex })
 
     try {
       await playSentenceAudio(currentSentence)
       setAudioError(null)
-      logEvent('audio', 'replay_completed', {
-        sentenceIndex,
-        replayCount: nextReplayCount
-      })
+      logEvent('audio', 'replay_completed', { sentenceIndex })
     } catch (error) {
       setAudioError('Audio playback is unavailable on this browser.')
-      logError('audio', 'replay_failed', error, {
-        sentenceIndex,
-        replayCount: nextReplayCount
-      })
+      logError('audio', 'replay_failed', error, { sentenceIndex })
     }
   }
 
   function handleNextSentence() {
+    if (isAdvancing) {
+      logEvent('round', 'skip_ignored_while_advancing', { sentenceIndex })
+      return
+    }
+
     if (sentenceIndex < STARTER_SENTENCES.length - 1) {
       logEvent('round', isComplete ? 'next_sentence_clicked' : 'skip_sentence_clicked', {
         fromSentenceIndex: sentenceIndex,
@@ -194,99 +273,120 @@ export default function App() {
     logEvent('round', 'navigation_ignored_last_sentence', { sentenceIndex })
   }
 
+  function handleStartSession() {
+    setIsStartModalOpen(false)
+    setHasSessionStarted(true)
+    setFocusSignal((current) => current + 1)
+    logEvent('session', 'start_clicked', { sentenceIndex })
+  }
+
+  const handleMaskValueChange = useCallback(
+    (nextValue: MaskedSentenceComposerValue) => {
+      setMaskValue(nextValue)
+      setActiveWordIndex(null)
+      logEvent('input', 'mask_updated', {
+        sentenceIndex,
+        compactLength: nextValue.compact.length,
+        isComplete: nextValue.isComplete
+      })
+    },
+    [sentenceIndex]
+  )
+
+  const handleKeyboardSubmit = useCallback(
+    (value: string) => {
+      submitAnswer(value, 'keyboard')
+    },
+    [attemptCount, sentenceIndex, targetWords]
+  )
+
+  const handleIncompleteKeyboardSubmit = useCallback(() => {
+    logEvent('round', 'submit_ignored_incomplete', {
+      sentenceIndex,
+      source: 'keyboard'
+    })
+  }, [sentenceIndex])
+
   return (
     <main className="app-shell">
       <header className="app-header">
         <h1>Kuupeli</h1>
-        <button
-          type="button"
-          className="theme-toggle"
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          onClick={() => {
-            logEvent('theme', 'toggle_clicked', {
-              fromTheme: theme,
-              toTheme: theme === 'dark' ? 'light' : 'dark'
-            })
-            setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
-          }}
-        >
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        </button>
+        <div className="header-actions">
+          <a href="/stories" className="header-link">
+            Stories
+          </a>
+          <a href="/models" className="header-link">
+            Models
+          </a>
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            onClick={() => {
+              logEvent('theme', 'toggle_clicked', {
+                fromTheme: theme,
+                toTheme: theme === 'dark' ? 'light' : 'dark'
+              })
+              setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+            }}
+          >
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
+        </div>
       </header>
       <p aria-live="polite">
         Starter Pack: {sentenceIndex + 1}/{STARTER_SENTENCES.length}
       </p>
 
-      <section className="round-panel">
-        <MaskedSentenceInput sentence={currentSentence} />
-
+      <section className={`round-panel${isAdvancing ? ' round-panel-success' : ''}`}>
         <ReplayButton
           onReplay={() => {
             void handleReplay()
           }}
         />
-        <p aria-live="polite">Replay count: {replayCount}</p>
         {audioError && <p role="alert">{audioError}</p>}
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            handleSubmit()
-          }}
-        >
-          <div className="word-grid">
-            {targetWords.map((_, index) => {
-              const label = `Word ${index + 1}`
-              const isInvalid = invalidIndexes.includes(index)
+        <MaskedSentenceComposer
+          sentence={currentSentence}
+          invalidWordIndexes={invalidIndexes}
+          activeWordIndex={activeWordIndex}
+          focusSignal={focusSignal}
+          onValueChange={handleMaskValueChange}
+          onSubmit={handleKeyboardSubmit}
+          onIncompleteSubmit={handleIncompleteKeyboardSubmit}
+        />
 
-              return (
-                <label key={label} className={isInvalid ? 'word-input invalid' : 'word-input'}>
-                  <span>{label}</span>
-                  <input
-                    aria-label={label}
-                    value={answers[index] ?? ''}
-                    onChange={(event) => {
-                      const next = [...answers]
-                      next[index] = event.target.value
-                      setAnswers(next)
-                      logEvent('input', 'word_updated', {
-                        sentenceIndex,
-                        wordIndex: index,
-                        valueLength: event.target.value.length
-                      })
-                    }}
-                  />
-                </label>
-              )
-            })}
-          </div>
+        <div className="round-actions">
+          <SubmitButton
+            disabled={isSubmitDisabled}
+            onSubmit={() => {
+              if (isSubmitDisabled) {
+                logEvent('round', 'submit_ignored_button_disabled', {
+                  sentenceIndex,
+                  isComplete: maskValue.isComplete,
+                  isAdvancing
+                })
+                return
+              }
 
-          <SubmitButton disabled={false} onSubmit={handleSubmit} />
-        </form>
+              submitAnswer(maskValue.spaced, 'button')
+            }}
+          />
+
+          {sentenceIndex < STARTER_SENTENCES.length - 1 && (
+            <button type="button" className="skip-sentence-button" onClick={handleNextSentence} disabled={isSkipDisabled}>
+              Skip sentence
+            </button>
+          )}
+        </div>
 
         {isComplete && <p aria-live="polite">Stars: {stars}</p>}
-        {sentenceIndex < STARTER_SENTENCES.length - 1 && (
-          <button type="button" onClick={handleNextSentence}>
-            {isComplete ? 'Next sentence' : 'Skip sentence'}
-          </button>
-        )}
         {!isComplete && invalidIndexes.length > 0 && (
           <p aria-live="polite">Fix highlighted words: {invalidIndexes.join(', ')}</p>
         )}
       </section>
 
-      <section className="tools-panel">
-        <ImportControls
-          onSelect={(file) => {
-            logEvent('ingestion', 'file_selected', {
-              fileName: file.name,
-              fileType: file.type,
-              fileSize: file.size
-            })
-          }}
-        />
-        <ModelManagerPanel />
-      </section>
+      {isStartModalOpen && <StartModal onStart={handleStartSession} />}
     </main>
   )
 }
