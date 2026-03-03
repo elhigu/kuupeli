@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../src/tts/playback', () => ({
-  playSentenceAudio: vi.fn().mockResolvedValue(undefined)
+  playSentenceAudio: vi.fn().mockResolvedValue(undefined),
+  stopActivePlayback: vi.fn(() => true)
 }))
 
 vi.mock('../../src/tts/audioPrefetchQueue', () => ({
