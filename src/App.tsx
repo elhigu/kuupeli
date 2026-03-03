@@ -7,6 +7,7 @@ import { getProgress, saveProgress } from './db/repositories/progressRepo'
 import { listTrainingPacks } from './db/repositories/trainingPackRepo'
 import type { TrainingPack } from './db/schema'
 import { DEFAULT_STORY, DEFAULT_STORY_ID } from './data/defaultStory'
+import { preloadTestingModelIfNeeded } from './models/testModelPreload'
 import { logError, logEvent } from './observability/devLogger'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
@@ -93,6 +94,10 @@ export default function App() {
   const isComplete = stars !== null
   const isSubmitDisabled = !maskValue.isComplete || isAdvancing
   const isSkipDisabled = isAdvancing
+
+  useEffect(() => {
+    void preloadTestingModelIfNeeded()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
