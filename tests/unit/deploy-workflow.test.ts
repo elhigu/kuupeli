@@ -11,4 +11,10 @@ describe('GitHub Pages deploy workflow', () => {
     expect(workflow).toMatch(/publish_branch:\s+gh-pages/)
     expect(workflow).toMatch(/publish_dir:\s+\.\/dist/)
   })
+
+  it('commits SPA fallback page for project-page deep links', () => {
+    const fallback = fs.readFileSync('public/404.html', 'utf8')
+    expect(fallback).toMatch(/ghp_path/)
+    expect(fallback).toMatch(/window\.location\.replace/)
+  })
 })
