@@ -14,17 +14,6 @@
   background: var(--bg-gradient);
 }
 
-:root[data-theme='light'] {
-  color-scheme: light;
-  --text-color: #1f2430;
-  --bg-gradient: linear-gradient(160deg, #fbf7ef 0%, #f0f5ff 60%, #eefaf5 100%);
-  --panel-background: rgba(255, 255, 255, 0.8);
-  --panel-border: rgba(11, 46, 79, 0.15);
-  --input-background: #ffffff;
-  --input-border: #5d7592;
-  --accent: #204f85;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -46,20 +35,31 @@ body {
   margin: 0 auto;
   padding: 1.5rem;
   display: grid;
-  gap: 1.5rem;
+  gap: 1rem;
+  align-content: start;
 }
 
-.app-header {
+.app-topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 0.7rem;
+  background: var(--panel-background);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 0.7rem 0.9rem;
 }
 
-.header-actions {
+.app-title {
+  margin: 0;
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.topbar-actions {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
 }
 
 .header-link {
@@ -67,18 +67,8 @@ body {
   text-decoration: none;
   border: 1px solid var(--panel-border);
   border-radius: 999px;
-  padding: 0.45rem 0.75rem;
-  font-size: 0.92rem;
-}
-
-.theme-toggle {
-  border: 1px solid var(--panel-border);
-  background: transparent;
-  color: var(--text-color);
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-  font: inherit;
-  cursor: pointer;
+  padding: 0.38rem 0.68rem;
+  font-size: 0.85rem;
 }
 
 .round-panel,
@@ -89,6 +79,19 @@ body {
   padding: 1rem;
   display: grid;
   gap: 0.75rem;
+}
+
+.story-meta-panel {
+  background: var(--panel-background);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.story-meta-panel p {
+  margin: 0;
 }
 
 .round-panel-success {
@@ -362,12 +365,16 @@ body {
     padding: 1rem;
   }
 
-  .app-header {
-    align-items: start;
+  .app-topbar {
+    align-items: flex-start;
     flex-direction: column;
   }
 
-  .header-actions {
+  .topbar-actions {
     flex-wrap: wrap;
+  }
+
+  .app-title {
+    font-size: 2rem;
   }
 }

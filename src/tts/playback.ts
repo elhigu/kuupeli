@@ -16,31 +16,94 @@ export interface PlaybackModelOverride {
   voiceTypeId?: string
 }
 
-function playWavBuffer(buffer: ArrayBuffer): Promise<void> {
+type PlaybackOutcome = 'completed' | 'stopped'
+
+interface ActivePlaybackSession {
+  id: number
+  stop: () => void
+}
+
+let latestPlaybackId = 0
+let activePlaybackSession: ActivePlaybackSession | null = null
+
+function startPlaybackSession(): number {
+  if (activePlaybackSession) {
+    activePlaybackSession.stop()
+    activePlaybackSession = null
+  }
+
+  latestPlaybackId += 1
+  return latestPlaybackId
+}
+
+function isPlaybackCurrent(playbackId: number): boolean {
+  return playbackId === latestPlaybackId
+}
+
+function registerActivePlayback(playbackId: number, stop: () => void): void {
+  activePlaybackSession = { id: playbackId, stop }
+}
+
+function clearActivePlayback(playbackId: number): void {
+  if (activePlaybackSession?.id === playbackId) {
+    activePlaybackSession = null
+  }
+}
+
+function playWavBuffer(buffer: ArrayBuffer, playbackId: number): Promise<PlaybackOutcome> {
   if (typeof window === 'undefined' || typeof Audio === 'undefined' || typeof URL === 'undefined') {
     return Promise.reject(new Error('Audio element playback not available'))
   }
 
   const blobUrl = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }))
 
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<PlaybackOutcome>((resolve, reject) => {
     const audio = new Audio(blobUrl)
+    let settled = false
+
     const cleanup = () => URL.revokeObjectURL(blobUrl)
+    const complete = (outcome: PlaybackOutcome) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      cleanup()
+      clearActivePlayback(playbackId)
+      resolve(outcome)
+    }
 
     audio.onended = () => {
-      cleanup()
-      resolve()
+      complete('completed')
     }
 
     audio.onerror = () => {
+      if (settled) {
+        return
+      }
+
+      settled = true
       cleanup()
+      clearActivePlayback(playbackId)
       reject(new Error('Audio element playback failed'))
     }
+
+    registerActivePlayback(playbackId, () => {
+      if (typeof audio.pause === 'function') {
+        audio.pause()
+      }
+      complete('stopped')
+    })
 
     const playPromise = audio.play()
     if (playPromise) {
       void playPromise.catch((error: unknown) => {
+        if (settled) {
+          return
+        }
+        settled = true
         cleanup()
+        clearActivePlayback(playbackId)
         reject(error instanceof Error ? error : new Error('Audio play was rejected'))
       })
     }
@@ -59,7 +122,11 @@ function describeError(error: unknown): string {
   return 'Unknown error'
 }
 
-function playSpeechSynthesisFallback(text: string, options: PlaybackOptions = {}): Promise<void> {
+function playSpeechSynthesisFallback(
+  text: string,
+  options: PlaybackOptions = {},
+  playbackId: number
+): Promise<PlaybackOutcome> {
   if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
     return Promise.reject(new Error('Speech synthesis API not available'))
   }
@@ -70,13 +137,37 @@ function playSpeechSynthesisFallback(text: string, options: PlaybackOptions = {}
   utterance.pitch = options.pitch ?? 1
   utterance.volume = options.volume ?? 1
 
-  return new Promise<void>((resolve, reject) => {
-    utterance.onend = () => resolve()
-    utterance.onerror = () => reject(new Error('Speech synthesis failed'))
+  return new Promise<PlaybackOutcome>((resolve, reject) => {
+    let settled = false
+    const complete = (outcome: PlaybackOutcome) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      clearActivePlayback(playbackId)
+      resolve(outcome)
+    }
+
+    utterance.onend = () => complete('completed')
+    utterance.onerror = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearActivePlayback(playbackId)
+      reject(new Error('Speech synthesis failed'))
+    }
+
+    registerActivePlayback(playbackId, () => {
+      window.speechSynthesis.cancel()
+      complete('stopped')
+    })
+
     window.speechSynthesis.cancel()
     window.speechSynthesis.speak(utterance)
-    // Some mocked/browser implementations may never fire onend.
-    setTimeout(() => resolve(), 0)
+    // Some mocked/browser implementations may never dispatch onend.
+    setTimeout(() => complete('completed'), 0)
   })
 }
 
@@ -102,6 +193,7 @@ export async function playSentenceAudioWithModel(
   override: PlaybackModelOverride,
   options: PlaybackOptions = {}
 ): Promise<void> {
+  const playbackId = startPlaybackSession()
   const model = getModelById(override.modelId)
   const voiceTypeId = override.voiceTypeId ?? (await getModelVoiceType(override.modelId))
   const selectedVoice =
@@ -113,6 +205,7 @@ export async function playSentenceAudioWithModel(
     textLength: text.length,
     sentence: text,
     activeModelId: override.modelId,
+    playbackId,
     engine: model?.engine ?? 'unknown',
     voiceTypeId,
     voice: selectedVoice
@@ -121,6 +214,13 @@ export async function playSentenceAudioWithModel(
   try {
     const prefetched = selectedVoice ? getPrefetchedSentenceClip(text, selectedVoice) : undefined
     const wavBuffer = prefetched ?? (await synthesizeFromSelection(text, override.modelId, voiceTypeId))
+    if (!isPlaybackCurrent(playbackId)) {
+      logEvent('audio_playback', 'superseded_before_playback', {
+        playbackId,
+        activeModelId: override.modelId
+      })
+      return
+    }
 
     if (prefetched) {
       logEvent('audio_playback', 'prefetch_cache_hit', {
@@ -150,16 +250,35 @@ export async function playSentenceAudioWithModel(
       })
     }
 
-    await playWavBuffer(wavBuffer)
+    const playbackOutcome = await playWavBuffer(wavBuffer, playbackId)
+    if (playbackOutcome === 'stopped') {
+      logEvent('audio_playback', 'superseded_during_playback', {
+        playbackId,
+        activeModelId: override.modelId
+      })
+      return
+    }
+
     logEvent('audio_playback', 'playback_completed', {
+      playbackId,
       activeModelId: override.modelId
     })
     logEvent('audio_playback', 'wasm_playback_completed', {
+      playbackId,
       activeModelId: override.modelId
     })
     return
   } catch (error) {
+    if (!isPlaybackCurrent(playbackId)) {
+      logEvent('audio_playback', 'superseded_before_fallback', {
+        playbackId,
+        activeModelId: override.modelId
+      })
+      return
+    }
+
     logEvent('audio_playback', 'model_playback_failed', {
+      playbackId,
       activeModelId: override.modelId,
       reason: describeError(error)
     })
@@ -169,7 +288,14 @@ export async function playSentenceAudioWithModel(
     requestedLang: options.lang ?? 'fi-FI'
   })
 
-  await playSpeechSynthesisFallback(text, options)
+  const fallbackOutcome = await playSpeechSynthesisFallback(text, options, playbackId)
+  if (fallbackOutcome === 'stopped') {
+    logEvent('audio_playback', 'fallback_superseded', {
+      playbackId
+    })
+    return
+  }
+
   logEvent('audio_playback', 'fallback_speech_synthesis_completed')
 }
 
