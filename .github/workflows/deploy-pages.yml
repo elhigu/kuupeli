@@ -33,6 +33,9 @@ jobs:
         env:
           VITE_BASE_PATH: /kuupeli/
 
+      - name: Copy SPA fallback for deep links
+        run: cp dist/index.html dist/404.html
+
       - name: Deploy dist to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
