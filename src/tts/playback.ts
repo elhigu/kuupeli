@@ -50,6 +50,16 @@ function clearActivePlayback(playbackId: number): void {
   }
 }
 
+export function stopActivePlayback(): boolean {
+  if (!activePlaybackSession) {
+    return false
+  }
+
+  activePlaybackSession.stop()
+  activePlaybackSession = null
+  return true
+}
+
 function playWavBuffer(buffer: ArrayBuffer, playbackId: number): Promise<PlaybackOutcome> {
   if (typeof window === 'undefined' || typeof Audio === 'undefined' || typeof URL === 'undefined') {
     return Promise.reject(new Error('Audio element playback not available'))
@@ -61,7 +71,10 @@ function playWavBuffer(buffer: ArrayBuffer, playbackId: number): Promise<Playbac
     const audio = new Audio(blobUrl)
     let settled = false
 
-    const cleanup = () => URL.revokeObjectURL(blobUrl)
+    const cleanup = () => {
+      // Defer revoke to avoid transient blob fetch errors during rapid stop/replay churn.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1500)
+    }
     const complete = (outcome: PlaybackOutcome) => {
       if (settled) {
         return

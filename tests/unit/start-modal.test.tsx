@@ -7,7 +7,8 @@ import App from '../../src/App'
 import { playSentenceAudio } from '../../src/tts/playback'
 
 vi.mock('../../src/tts/playback', () => ({
-  playSentenceAudio: vi.fn().mockResolvedValue(undefined)
+  playSentenceAudio: vi.fn().mockResolvedValue(undefined),
+  stopActivePlayback: vi.fn(() => true)
 }))
 
 describe('Start modal', () => {

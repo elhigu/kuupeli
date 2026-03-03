@@ -13,7 +13,7 @@ import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { storageRecoveryGuidance } from './storage/storageGuidance'
 import { prefetchSentenceClip } from './tts/audioPrefetchQueue'
-import { playSentenceAudio } from './tts/playback'
+import { playSentenceAudio, stopActivePlayback } from './tts/playback'
 
 const THEME_STORAGE_KEY = 'kuupeli-theme'
 const SUCCESS_ADVANCE_DELAY_MS = 700
@@ -62,9 +62,11 @@ export default function App() {
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [isStartModalOpen, setIsStartModalOpen] = useState(true)
   const [hasSessionStarted, setHasSessionStarted] = useState(false)
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false)
   const [focusSignal, setFocusSignal] = useState(0)
   const transitionTimerRef = useRef<number | null>(null)
   const lastAutoplayKeyRef = useRef<string | null>(null)
+  const latestPlaybackRequestRef = useRef(0)
 
   const activeStory = useMemo(
     () => stories.find((story) => story.id === activeStoryId) ?? DEFAULT_STORY,
@@ -308,18 +310,7 @@ export default function App() {
 
     const autoplayCurrentSentence = async () => {
       logEvent('audio', 'autoplay_started', { sentenceIndex })
-      try {
-        await playSentenceAudio(currentSentence)
-        if (!cancelled) {
-          setAudioError(null)
-          logEvent('audio', 'autoplay_completed', { sentenceIndex })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setAudioError('Audio playback is unavailable on this browser.')
-          logError('audio', 'autoplay_failed', error, { sentenceIndex })
-        }
-      }
+      await runSentencePlayback(currentSentence, { source: 'autoplay', sentenceIndex })
     }
 
     void autoplayCurrentSentence()
@@ -334,8 +325,39 @@ export default function App() {
       if (transitionTimerRef.current !== null) {
         window.clearTimeout(transitionTimerRef.current)
       }
+      stopActivePlayback()
     }
   }, [])
+
+  async function runSentencePlayback(
+    text: string,
+    context: { source: 'autoplay' | 'replay'; sentenceIndex: number }
+  ): Promise<void> {
+    const requestId = latestPlaybackRequestRef.current + 1
+    latestPlaybackRequestRef.current = requestId
+    setIsAudioPlaying(true)
+
+    try {
+      await playSentenceAudio(text)
+      setAudioError(null)
+      if (context.source === 'autoplay') {
+        logEvent('audio', 'autoplay_completed', { sentenceIndex: context.sentenceIndex })
+      } else {
+        logEvent('audio', 'replay_completed', { sentenceIndex: context.sentenceIndex })
+      }
+    } catch (error) {
+      setAudioError('Audio playback is unavailable on this browser.')
+      if (context.source === 'autoplay') {
+        logError('audio', 'autoplay_failed', error, { sentenceIndex: context.sentenceIndex })
+      } else {
+        logError('audio', 'replay_failed', error, { sentenceIndex: context.sentenceIndex })
+      }
+    } finally {
+      if (latestPlaybackRequestRef.current === requestId) {
+        setIsAudioPlaying(false)
+      }
+    }
+  }
 
   function submitAnswer(answer: string, source: 'button' | 'keyboard') {
     if (isAdvancing) {
@@ -390,15 +412,13 @@ export default function App() {
 
     setFocusSignal((current) => current + 1)
     logEvent('audio', 'replay_clicked', { sentenceIndex })
+    await runSentencePlayback(currentSentence, { source: 'replay', sentenceIndex })
+  }
 
-    try {
-      await playSentenceAudio(currentSentence)
-      setAudioError(null)
-      logEvent('audio', 'replay_completed', { sentenceIndex })
-    } catch (error) {
-      setAudioError('Audio playback is unavailable on this browser.')
-      logError('audio', 'replay_failed', error, { sentenceIndex })
-    }
+  function handleStopAudioPlayback() {
+    const stopped = stopActivePlayback()
+    setIsAudioPlaying(false)
+    logEvent('audio', stopped ? 'stop_clicked' : 'stop_clicked_no_active_playback', { sentenceIndex })
   }
 
   function handleNextSentence() {
@@ -532,6 +552,16 @@ export default function App() {
         <p aria-live="polite">Current sentence score: {stars ?? '-'}</p>
       </section>
       {storageWarning && <p role="alert">{storageWarning}</p>}
+      {hasSessionStarted && isAudioPlaying && (
+        <button
+          type="button"
+          className="floating-stop-audio"
+          aria-label="Stop audio playback"
+          onClick={handleStopAudioPlayback}
+        >
+          Stop
+        </button>
+      )}
 
       {isStartModalOpen && (
         <StartModal
