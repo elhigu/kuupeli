@@ -6,5 +6,5 @@ export const DEFAULT_STORY_ID = 'starter-pack'
 export const DEFAULT_STORY: TrainingPack = {
   id: DEFAULT_STORY_ID,
   title: 'Starter Pack',
-  sentences: STARTER_SENTENCES
+  sentences: [...STARTER_SENTENCES]
 }
