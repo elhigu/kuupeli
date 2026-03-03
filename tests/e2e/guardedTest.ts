@@ -15,7 +15,13 @@ export const test = base.extend<{ errorCollector: ErrorCollector }>({
 
       page.on('console', (message) => {
         if (message.type() === 'error') {
-          collector.consoleErrors.push(message.text())
+          const text = message.text()
+          const isKnownOnnxCpuWarning =
+            text.includes('[W:onnxruntime:Default, cpuid_info.cc:95 LogEarlyWarning] Unknown CPU vendor')
+
+          if (!isKnownOnnxCpuWarning) {
+            collector.consoleErrors.push(text)
+          }
         }
       })
 

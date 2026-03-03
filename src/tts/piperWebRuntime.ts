@@ -10,6 +10,15 @@ export interface PiperProgress {
 
 let piperModulePromise: Promise<PiperModule> | null = null
 
+const ONNX_WASM_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.2/dist/'
+const PIPER_PHONEMIZE_BASE = 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize'
+
+const PIPER_WASM_PATHS = {
+  onnxWasm: ONNX_WASM_BASE,
+  piperData: `${PIPER_PHONEMIZE_BASE}.data`,
+  piperWasm: `${PIPER_PHONEMIZE_BASE}.wasm`
+}
+
 async function getPiperModule(): Promise<PiperModule> {
   if (typeof window === 'undefined') {
     throw new Error('Piper runtime requires browser environment')
@@ -20,6 +29,22 @@ async function getPiperModule(): Promise<PiperModule> {
   }
 
   return piperModulePromise
+}
+
+function preferWasmExecutionBackend() {
+  if (typeof navigator === 'undefined') {
+    return
+  }
+
+  try {
+    Object.defineProperty(navigator, 'gpu', {
+      value: undefined,
+      configurable: true
+    })
+    logEvent('piper_runtime', 'webgpu_disabled_for_stability')
+  } catch {
+    // Ignore environments where navigator.gpu is not configurable.
+  }
 }
 
 export async function downloadPiperVoice(
@@ -53,7 +78,16 @@ export async function listPiperStoredVoices(): Promise<string[]> {
 
 export async function predictPiperVoice(voiceId: string, text: string): Promise<ArrayBuffer> {
   const runtime = await getPiperModule()
-  const blob = await runtime.predict({ text, voiceId })
+  preferWasmExecutionBackend()
+  const session = await runtime.TtsSession.create({
+    voiceId,
+    wasmPaths: PIPER_WASM_PATHS
+  })
+  logEvent('piper_runtime', 'session_created', {
+    voiceId,
+    onnxWasmBase: ONNX_WASM_BASE
+  })
+  const blob = await session.predict(text)
   const buffer = await blob.arrayBuffer()
   logEvent('piper_runtime', 'predicted', { voiceId, bytes: buffer.byteLength, textLength: text.length })
   return buffer

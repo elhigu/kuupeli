@@ -1,11 +1,8 @@
 import { expect, test } from './guardedTest'
 
-const RUN_LIVE_PIPER = process.env.KUUPELI_RUN_LIVE_PIPER === '1'
-
-test('optional live piper download and synthesis smoke test', async ({ page, browserName }, testInfo) => {
-  test.skip(!RUN_LIVE_PIPER, 'Set KUUPELI_RUN_LIVE_PIPER=1 to enable live Piper smoke coverage.')
-  test.skip(browserName !== 'chromium', 'Live Piper smoke test runs only on the desktop Chromium project.')
-  testInfo.setTimeout(240_000)
+test('live piper download and synthesis smoke test', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'Live Piper smoke test runs only on desktop Chromium project.')
+  testInfo.setTimeout(300_000)
 
   const infoLogs: string[] = []
   page.on('console', (message) => {
@@ -40,6 +37,19 @@ test('optional live piper download and synthesis smoke test', async ({ page, bro
       () =>
         infoLogs.some(
           (line) => line.includes('[Kuupeli][piper_runtime] predicted') && line.includes('fi_FI-harri-low')
+        ),
+      { timeout: 45_000 }
+    )
+    .toBeTruthy()
+
+  await expect
+    .poll(
+      () =>
+        infoLogs.some(
+          (line) =>
+            line.includes('[Kuupeli][audio_playback] synthesized') &&
+            line.includes('activeModelId') &&
+            line.includes('fi-piper-harri-low')
         ),
       { timeout: 45_000 }
     )
