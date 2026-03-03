@@ -27,3 +27,15 @@ npm run test:e2e
 npm run build
 npm run preview
 ```
+
+## Deployment (GitHub Pages)
+
+- Automatic deploy runs via `.github/workflows/deploy-pages.yml` on every push to `main`.
+- The workflow builds with `VITE_BASE_PATH=/kuupeli/` and publishes `dist/` to the `gh-pages` branch.
+- GitHub Pages should be configured to serve from the `gh-pages` branch (root folder).
+
+### Post-Deploy Check
+
+1. Open the published app URL: `https://elhigu.github.io/kuupeli/`.
+2. Confirm app shell loads with no missing asset errors in browser console.
+3. Confirm route navigation (`Play`, `Stories`, `Models`) and audio replay still work.
