@@ -337,6 +337,13 @@ body {
   cursor: pointer;
 }
 
+.story-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
 .model-test-phrase {
   display: grid;
   gap: 0.35rem;
