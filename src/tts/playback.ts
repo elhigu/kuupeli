@@ -1,5 +1,6 @@
 import { getActiveModel, getModelById, getModelVoiceType } from '../models/modelManager'
 import { logEvent } from '../observability/devLogger'
+import { getPrefetchedSentenceClip } from './audioPrefetchQueue'
 import { predictPiperVoice } from './piperWebRuntime'
 import { synthesizeSentence } from './ttsRuntime'
 
@@ -103,27 +104,52 @@ export async function playSentenceAudioWithModel(
 ): Promise<void> {
   const model = getModelById(override.modelId)
   const voiceTypeId = override.voiceTypeId ?? (await getModelVoiceType(override.modelId))
+  const selectedVoice =
+    model?.engine === 'espeak-ng'
+      ? (model.voiceTypes.find((option) => option.id === voiceTypeId) ?? model.voiceTypes[0])?.runtimeVoice ?? 'fi'
+      : undefined
 
   logEvent('audio_playback', 'start', {
     textLength: text.length,
     sentence: text,
     activeModelId: override.modelId,
     engine: model?.engine ?? 'unknown',
-    voiceTypeId
+    voiceTypeId,
+    voice: selectedVoice
   })
 
   try {
-    const wavBuffer = await synthesizeFromSelection(text, override.modelId, voiceTypeId)
-    logEvent('audio_playback', 'synthesized', {
-      bytes: wavBuffer.byteLength,
-      activeModelId: override.modelId,
-      engine: model?.engine ?? 'unknown'
-    })
-    logEvent('audio_playback', 'wasm_synthesized', {
-      bytes: wavBuffer.byteLength,
-      activeModelId: override.modelId,
-      engine: model?.engine ?? 'unknown'
-    })
+    const prefetched = selectedVoice ? getPrefetchedSentenceClip(text, selectedVoice) : undefined
+    const wavBuffer = prefetched ?? (await synthesizeFromSelection(text, override.modelId, voiceTypeId))
+
+    if (prefetched) {
+      logEvent('audio_playback', 'prefetch_cache_hit', {
+        textLength: text.length,
+        bytes: prefetched.byteLength,
+        activeModelId: override.modelId,
+        voice: selectedVoice
+      })
+    } else {
+      if (selectedVoice) {
+        logEvent('audio_playback', 'prefetch_cache_miss', {
+          textLength: text.length,
+          activeModelId: override.modelId,
+          voice: selectedVoice
+        })
+      }
+
+      logEvent('audio_playback', 'synthesized', {
+        bytes: wavBuffer.byteLength,
+        activeModelId: override.modelId,
+        engine: model?.engine ?? 'unknown'
+      })
+      logEvent('audio_playback', 'wasm_synthesized', {
+        bytes: wavBuffer.byteLength,
+        activeModelId: override.modelId,
+        engine: model?.engine ?? 'unknown'
+      })
+    }
+
     await playWavBuffer(wavBuffer)
     logEvent('audio_playback', 'playback_completed', {
       activeModelId: override.modelId
