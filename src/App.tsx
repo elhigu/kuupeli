@@ -7,6 +7,7 @@ import { STARTER_SENTENCES } from './data/starterSentences'
 import { logError, logEvent } from './observability/devLogger'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
+import { storageRecoveryGuidance } from './storage/storageGuidance'
 import { playSentenceAudio } from './tts/playback'
 
 type ThemeMode = 'dark' | 'light'
@@ -54,6 +55,7 @@ export default function App() {
   const [invalidIndexes, setInvalidIndexes] = useState<number[]>([])
   const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
+  const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [isStartModalOpen, setIsStartModalOpen] = useState(true)
   const [hasSessionStarted, setHasSessionStarted] = useState(false)
@@ -76,10 +78,13 @@ export default function App() {
 
     try {
       localStorage.setItem(THEME_STORAGE_KEY, theme)
+      setStorageWarning(null)
       logEvent('theme', 'persisted', { storageKey: THEME_STORAGE_KEY, theme })
-    } catch {
-      // Ignore storage write issues so gameplay continues.
-      logEvent('theme', 'persist_failed', { storageKey: THEME_STORAGE_KEY, theme })
+    } catch (error) {
+      // Keep gameplay running with explicit recovery guidance.
+      const guidance = storageRecoveryGuidance(error)
+      setStorageWarning(guidance)
+      logError('theme', 'persist_failed', error, { storageKey: THEME_STORAGE_KEY, theme })
     }
   }, [theme])
 
@@ -337,6 +342,7 @@ export default function App() {
       <p aria-live="polite">
         Starter Pack: {sentenceIndex + 1}/{STARTER_SENTENCES.length}
       </p>
+      {storageWarning && <p role="alert">{storageWarning}</p>}
 
       <section className={`round-panel${isAdvancing ? ' round-panel-success' : ''}`}>
         <ReplayButton

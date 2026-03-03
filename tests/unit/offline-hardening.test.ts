@@ -6,4 +6,9 @@ describe('Cache policy', () => {
     expect(shouldServeFromCache('/assets/main.js')).toBe(true)
     expect(shouldServeFromCache('/api/something')).toBe(false)
   })
+
+  it('normalizes query/hash paths before cache decision', () => {
+    expect(shouldServeFromCache('/assets/main.js?v=1#chunk')).toBe(true)
+    expect(shouldServeFromCache('/play?from=home')).toBe(true)
+  })
 })

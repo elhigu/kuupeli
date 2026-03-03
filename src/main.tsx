@@ -18,7 +18,8 @@ logEvent('app_boot', 'starting_render')
 registerServiceWorker({
   isProduction: import.meta.env.PROD,
   serviceWorker: 'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
-  addLoadListener: (listener) => window.addEventListener('load', listener)
+  addLoadListener: (listener) => window.addEventListener('load', listener),
+  baseUrl: import.meta.env.BASE_URL
 })
 
 createRoot(container).render(

@@ -1,4 +1,4 @@
-import { logEvent } from '../observability/devLogger'
+import { logError, logEvent } from '../observability/devLogger'
 
 export interface ServiceWorkerRegisterTarget {
   register: (scriptUrl: string) => Promise<unknown>
@@ -8,6 +8,20 @@ export interface RegisterServiceWorkerOptions {
   isProduction: boolean
   serviceWorker?: ServiceWorkerRegisterTarget
   addLoadListener: (listener: () => void) => void
+  baseUrl?: string
+}
+
+function normalizeBaseUrl(rawBaseUrl: string): string {
+  if (!rawBaseUrl) {
+    return '/'
+  }
+
+  return rawBaseUrl.endsWith('/') ? rawBaseUrl : `${rawBaseUrl}/`
+}
+
+function serviceWorkerScriptFor(baseUrl?: string): string {
+  const normalizedBase = normalizeBaseUrl(baseUrl ?? '/')
+  return `${normalizedBase}sw.js`
 }
 
 export function registerServiceWorker(options: RegisterServiceWorkerOptions): boolean {
@@ -20,8 +34,16 @@ export function registerServiceWorker(options: RegisterServiceWorkerOptions): bo
   }
 
   options.addLoadListener(() => {
-    logEvent('pwa', 'service_worker_registering', { script: '/sw.js' })
-    void options.serviceWorker?.register('/sw.js')
+    const scriptUrl = serviceWorkerScriptFor(options.baseUrl)
+    logEvent('pwa', 'service_worker_registering', { script: scriptUrl })
+    void options.serviceWorker
+      ?.register(scriptUrl)
+      .then(() => {
+        logEvent('pwa', 'service_worker_registered', { script: scriptUrl })
+      })
+      .catch((error) => {
+        logError('pwa', 'service_worker_registration_failed', error, { script: scriptUrl })
+      })
   })
 
   logEvent('pwa', 'service_worker_listener_attached')
