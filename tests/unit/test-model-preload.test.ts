@@ -42,6 +42,14 @@ describe('test model preload', () => {
     expect(mocks.installModel).not.toHaveBeenCalled()
   })
 
+  it('skips install when running under browser automation', async () => {
+    const result = await preloadTestingModelIfNeeded({ isDev: true, isAutomation: true })
+
+    expect(result).toBe('skipped_automation')
+    expect(mocks.listModels).not.toHaveBeenCalled()
+    expect(mocks.installModel).not.toHaveBeenCalled()
+  })
+
   it('skips install when model is already installed', async () => {
     mocks.listModels.mockResolvedValue([{ id: 'fi-piper-harri-low' }])
 
