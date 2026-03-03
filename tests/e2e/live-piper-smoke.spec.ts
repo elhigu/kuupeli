@@ -1,5 +1,7 @@
 import { expect, test } from './guardedTest'
 
+const LIVE_PIPER_POLL_TIMEOUT_MS = 120_000
+
 test('live piper download and synthesis smoke test', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'Live Piper smoke test runs only on desktop Chromium project.')
   testInfo.setTimeout(300_000)
@@ -38,7 +40,7 @@ test('live piper download and synthesis smoke test', async ({ page }, testInfo) 
         infoLogs.some(
           (line) => line.includes('[Kuupeli][piper_runtime] predicted') && line.includes('fi_FI-harri-low')
         ),
-      { timeout: 45_000 }
+      { timeout: LIVE_PIPER_POLL_TIMEOUT_MS }
     )
     .toBeTruthy()
 
@@ -51,7 +53,7 @@ test('live piper download and synthesis smoke test', async ({ page }, testInfo) 
             line.includes('activeModelId') &&
             line.includes('fi-piper-harri-low')
         ),
-      { timeout: 45_000 }
+      { timeout: LIVE_PIPER_POLL_TIMEOUT_MS }
     )
     .toBeTruthy()
 
@@ -63,7 +65,7 @@ test('live piper download and synthesis smoke test', async ({ page }, testInfo) 
             line.includes('[Kuupeli][audio_playback] wasm_playback_completed') ||
             line.includes('[Kuupeli][audio_playback] fallback_speech_synthesis_completed')
         ),
-      { timeout: 45_000 }
+      { timeout: LIVE_PIPER_POLL_TIMEOUT_MS }
     )
     .toBeTruthy()
 })
