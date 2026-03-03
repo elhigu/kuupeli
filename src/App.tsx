@@ -10,6 +10,7 @@ import { DEFAULT_STORY, DEFAULT_STORY_ID } from './data/defaultStory'
 import { getActiveModel, getModelById, getModelVoiceType } from './models/modelManager'
 import { preloadTestingModelIfNeeded } from './models/testModelPreload'
 import { logError, logEvent } from './observability/devLogger'
+import { readStarProgress, summarizeStarProgress, upsertSentenceStars, writeStarProgress } from './scoring/starProgress'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { storageRecoveryGuidance } from './storage/storageGuidance'
@@ -56,6 +57,7 @@ export default function App() {
   const [maskValue, setMaskValue] = useState<MaskedSentenceComposerValue>(EMPTY_MASK_VALUE)
   const [attemptCount, setAttemptCount] = useState(0)
   const [stars, setStars] = useState<1 | 2 | 3 | null>(null)
+  const [starProgress, setStarProgress] = useState(() => readStarProgress())
   const [invalidIndexes, setInvalidIndexes] = useState<number[]>([])
   const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
@@ -80,6 +82,10 @@ export default function App() {
   const targetWords = useMemo(
     () => currentSentence.split(/\s+/).map((word) => normalizeWord(word)).filter(Boolean),
     [currentSentence]
+  )
+  const starSummary = useMemo(
+    () => summarizeStarProgress(starProgress, sentenceCount),
+    [sentenceCount, starProgress]
   )
 
   const isComplete = stars !== null
@@ -409,6 +415,13 @@ export default function App() {
       setInvalidIndexes([])
       setActiveWordIndex(null)
       setIsAdvancing(true)
+
+      setStarProgress((currentProgress) => {
+        const nextProgress = upsertSentenceStars(currentProgress, sentenceIndex, nextStars)
+        writeStarProgress(nextProgress)
+        return nextProgress
+      })
+
       logEvent('round', 'completed', {
         sentenceIndex,
         attempt: nextAttempt,
@@ -520,7 +533,6 @@ export default function App() {
           </a>
         </nav>
       </header>
-
       <section data-testid="game-area" className={`round-panel${isAdvancing ? ' round-panel-success' : ''}`}>
         <ReplayButton
           onReplay={() => {
@@ -571,6 +583,10 @@ export default function App() {
       <section data-testid="story-meta" className="story-meta-panel">
         <p aria-live="polite">
           {activeStory.title}: {Math.min(sentenceIndex + 1, sentenceCount)}/{sentenceCount}
+        </p>
+        <p aria-live="polite">
+          Star progress: {starSummary.completedSentences}/{starSummary.totalSentences} sentences, {starSummary.earnedStars}/
+          {starSummary.maxStars} stars
         </p>
         <p aria-live="polite">Current sentence score: {stars ?? '-'}</p>
       </section>
