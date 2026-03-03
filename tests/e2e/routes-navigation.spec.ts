@@ -1,7 +1,7 @@
 import { expect, test } from './guardedTest'
 
 test('play page links to stories and models routes', async ({ page }) => {
-  await page.goto('/play')
+  await page.goto('play')
   await page.getByRole('button', { name: 'Aloita' }).click()
 
   await page.getByRole('link', { name: 'Stories' }).click()

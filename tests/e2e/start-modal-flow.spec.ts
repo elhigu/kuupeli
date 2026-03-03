@@ -1,7 +1,7 @@
 import { expect, test } from './guardedTest'
 
 test('start modal gates first sentence and allows immediate typing after Aloita', async ({ page }) => {
-  await page.goto('/play')
+  await page.goto('play')
 
   await expect(page.getByText('Oletko valmis ensimmäiseen lauseeseen?')).toBeVisible()
   await page.getByRole('button', { name: 'Aloita' }).click()

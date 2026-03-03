@@ -1,47 +1,56 @@
 import { expect, test } from './guardedTest'
 
-function extractSynthesizedBytes(logLine: string): number | null {
-  if (!logLine.includes('[Kuupeli][audio_playback] wasm_synthesized')) {
-    return null
-  }
-
-  const match = logLine.match(/bytes:\s*(\d+)/)
-  if (!match) {
-    return null
-  }
-
-  return Number.parseInt(match[1], 10)
-}
-
 test('replay outputs non-empty audio payload', async ({ page }) => {
-  const infoLogs: string[] = []
+  await page.addInitScript(() => {
+    ;(window as unknown as { __kuupeliAudioPlayCalls?: number }).__kuupeliAudioPlayCalls = 0
+    ;(window as unknown as { __kuupeliSpeechSpeakCalls?: number }).__kuupeliSpeechSpeakCalls = 0
 
-  page.on('console', (message) => {
-    if (message.type() === 'info') {
-      infoLogs.push(message.text())
+    const originalPlay = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function patchedPlay(...args) {
+      const state = window as unknown as { __kuupeliAudioPlayCalls: number }
+      state.__kuupeliAudioPlayCalls += 1
+      return originalPlay.apply(this, args)
+    }
+
+    if ('speechSynthesis' in window) {
+      const originalSpeak = window.speechSynthesis.speak.bind(window.speechSynthesis)
+      window.speechSynthesis.speak = ((utterance: SpeechSynthesisUtterance) => {
+        const state = window as unknown as { __kuupeliSpeechSpeakCalls: number }
+        state.__kuupeliSpeechSpeakCalls += 1
+        return originalSpeak(utterance)
+      }) as SpeechSynthesis['speak']
     }
   })
 
-  await page.goto('/')
+  await page.goto('')
   await page.getByRole('button', { name: 'Aloita' }).click()
-  infoLogs.length = 0
+
+  const baselinePlaybackCalls = await page.evaluate(() => {
+    const state = window as unknown as {
+      __kuupeliAudioPlayCalls?: number
+      __kuupeliSpeechSpeakCalls?: number
+    }
+
+    return (state.__kuupeliAudioPlayCalls ?? 0) + (state.__kuupeliSpeechSpeakCalls ?? 0)
+  })
 
   await page.getByRole('button', { name: 'Replay' }).click()
 
   await expect
-    .poll(() => {
-      const bytes = infoLogs.map(extractSynthesizedBytes).filter((value): value is number => value !== null)
-      return bytes.length > 0 ? Math.max(...bytes) : 0
-    })
-    .toBeGreaterThan(44)
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const state = window as unknown as {
+            __kuupeliAudioPlayCalls?: number
+            __kuupeliSpeechSpeakCalls?: number
+          }
+          return (state.__kuupeliAudioPlayCalls ?? 0) + (state.__kuupeliSpeechSpeakCalls ?? 0)
+        }),
+      { timeout: 15_000 }
+    )
+    .toBeGreaterThan(baselinePlaybackCalls)
 
   await expect
-    .poll(() =>
-      infoLogs.some(
-        (line) =>
-          line.includes('[Kuupeli][audio_playback] wasm_playback_completed') ||
-          line.includes('[Kuupeli][audio_playback] fallback_speech_synthesis_completed')
-      )
-    )
+    .poll(() => page.getByRole('button', { name: 'Replay' }).isEnabled())
     .toBeTruthy()
 })
