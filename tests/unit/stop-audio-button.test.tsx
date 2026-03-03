@@ -21,11 +21,13 @@ describe('Stop audio button', () => {
 
   it('appears while playback is active and hides after playback resolves', async () => {
     const user = userEvent.setup()
-    let resolvePlayback: (() => void) | null = null
+    let resolvePlayback: (() => void) | undefined
     mocks.playSentenceAudio.mockImplementation(
       () =>
         new Promise<void>((resolve) => {
-          resolvePlayback = resolve
+          resolvePlayback = () => {
+            resolve()
+          }
         })
     )
 
