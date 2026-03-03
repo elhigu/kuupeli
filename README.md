@@ -24,6 +24,12 @@ npm run test:unit
 npm run test:e2e
 ```
 
+Optional live Piper smoke test (real download + synthesis in browser, Chromium only):
+
+```bash
+KUUPELI_RUN_LIVE_PIPER=1 npm run test:e2e -- tests/e2e/live-piper-smoke.spec.ts --project=chromium
+```
+
 ## Build
 
 ```bash
