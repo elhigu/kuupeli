@@ -12,6 +12,7 @@ import { logError, logEvent } from './observability/devLogger'
 import { findInvalidWords } from './scoring/retryEvaluator'
 import { scoreStars } from './scoring/starScorer'
 import { storageRecoveryGuidance } from './storage/storageGuidance'
+import { prefetchSentenceClip } from './tts/audioPrefetchQueue'
 import { playSentenceAudio } from './tts/playback'
 
 type ThemeMode = 'dark' | 'light'
@@ -224,6 +225,47 @@ export default function App() {
       })
     })
   }, [activeStory.id, hasSessionStarted, sentenceCount, sentenceIndex])
+
+  useEffect(() => {
+    if (!hasSessionStarted) {
+      return
+    }
+
+    const nextSentence = currentSentences[sentenceIndex + 1]
+    if (!nextSentence) {
+      return
+    }
+
+    let cancelled = false
+
+    const prefetchNextSentence = async () => {
+      try {
+        const clip = await prefetchSentenceClip(nextSentence)
+        if (!cancelled) {
+          logEvent('audio_prefetch', 'next_sentence_prefetched', {
+            storyId: activeStory.id,
+            fromSentenceIndex: sentenceIndex,
+            targetSentenceIndex: sentenceIndex + 1,
+            clipBytes: clip.byteLength
+          })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          logError('audio_prefetch', 'next_sentence_prefetch_failed', error, {
+            storyId: activeStory.id,
+            fromSentenceIndex: sentenceIndex,
+            targetSentenceIndex: sentenceIndex + 1
+          })
+        }
+      }
+    }
+
+    void prefetchNextSentence()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeStory.id, currentSentences, hasSessionStarted, sentenceIndex])
 
   useEffect(() => {
     if (!isAdvancing) {
