@@ -30,6 +30,9 @@ Optional live Piper smoke test (real download + synthesis in browser, Chromium o
 KUUPELI_RUN_LIVE_PIPER=1 npm run test:e2e -- tests/e2e/live-piper-smoke.spec.ts --project=chromium
 ```
 
+In development mode, Kuupeli also auto-preloads `fi-piper-harri-low` in the background to make manual model testing easier.
+Set `VITE_PRELOAD_TEST_MODEL=0` to disable this behavior.
+
 ## Build
 
 ```bash
