@@ -48,4 +48,33 @@ describe('Stories page', () => {
       expect(screen.queryByText(storyName)).not.toBeInTheDocument()
     })
   })
+
+  it('shows actionable error guidance when txt parsing fails', async () => {
+    const user = userEvent.setup()
+    const originalText = File.prototype.text
+
+    Object.defineProperty(File.prototype, 'text', {
+      configurable: true,
+      value: async () => {
+        throw new Error('simulated txt read failure')
+      }
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/stories']}>
+        <AppRoutes />
+      </MemoryRouter>
+    )
+
+    const input = screen.getByLabelText(/import file/i)
+    const file = new File(['broken'], `broken-${Date.now()}.txt`, { type: 'text/plain' })
+    await user.upload(input, file)
+
+    await expect(screen.findByRole('alert')).resolves.toHaveTextContent(/could not import txt/i)
+
+    Object.defineProperty(File.prototype, 'text', {
+      configurable: true,
+      value: originalText
+    })
+  })
 })
