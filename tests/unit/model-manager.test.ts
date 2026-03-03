@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  FINNISH_PIPER_AVAILABLE_VOICE_IDS,
+  FINNISH_PIPER_UNAVAILABLE_HIGHER_TIERS
+} from '../../src/models/catalog'
+import {
   getModelVoiceType,
   installModel,
   listAvailableModels,
@@ -23,6 +27,15 @@ describe('Model manager', () => {
     expect(models.some((model) => model.id === 'fi-starter-small')).toBe(true)
     expect(models.some((model) => model.id === 'fi-piper-harri-low')).toBe(true)
     expect(models.some((model) => model.id === 'fi-piper-harri-medium')).toBe(true)
+
+    const finnishPiperVoiceIds = models
+      .filter((model) => model.engine === 'piper-web' && model.piperVoiceId?.startsWith('fi_FI-'))
+      .map((model) => model.piperVoiceId)
+      .filter((voiceId): voiceId is string => Boolean(voiceId))
+      .sort()
+    expect(finnishPiperVoiceIds).toEqual([...FINNISH_PIPER_AVAILABLE_VOICE_IDS].sort())
+    expect(models.some((model) => model.qualityTier === 'high' && model.piperVoiceId?.startsWith('fi_FI-'))).toBe(false)
+    expect(FINNISH_PIPER_UNAVAILABLE_HIGHER_TIERS).toContain('high')
   })
 
   it('installs downloadable model and can remove it', async () => {

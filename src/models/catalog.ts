@@ -20,6 +20,10 @@ export interface ModelCatalogEntry {
   voiceTypes: VoiceTypeOption[]
 }
 
+export const FINNISH_PIPER_VOICE_CATALOG_SNAPSHOT_DATE = '2026-03-03'
+export const FINNISH_PIPER_AVAILABLE_VOICE_IDS = ['fi_FI-harri-low', 'fi_FI-harri-medium'] as const
+export const FINNISH_PIPER_UNAVAILABLE_HIGHER_TIERS = ['high'] as const
+
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
   {
     id: 'fi-starter-small',

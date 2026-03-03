@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { MODEL_CATALOG } from '../models/catalog'
+import {
+  FINNISH_PIPER_AVAILABLE_VOICE_IDS,
+  FINNISH_PIPER_UNAVAILABLE_HIGHER_TIERS,
+  FINNISH_PIPER_VOICE_CATALOG_SNAPSHOT_DATE,
+  MODEL_CATALOG
+} from '../models/catalog'
 import {
   getActiveModel,
   getModelVoiceType,
@@ -61,6 +66,11 @@ export function ModelManagerPanel() {
       <p>
         Manage local speech models used by Kuupeli. Downloadable Piper voices are stored on device and can be removed
         later.
+      </p>
+      <p>
+        Finnish Piper catalog snapshot ({FINNISH_PIPER_VOICE_CATALOG_SNAPSHOT_DATE}):{' '}
+        {FINNISH_PIPER_AVAILABLE_VOICE_IDS.join(', ')}. Higher Finnish tiers currently unavailable:{' '}
+        {FINNISH_PIPER_UNAVAILABLE_HIGHER_TIERS.join(', ')}.
       </p>
       {storageError && <p role="alert">{storageError}</p>}
       <label className="model-test-phrase">
