@@ -18,6 +18,7 @@ describe('ModelManagerPanel', () => {
 
     expect(screen.getByRole('heading', { name: /model manager/i })).toBeInTheDocument()
     expect(screen.getByText(/manage local speech models used by kuupeli/i)).toBeInTheDocument()
+    expect(screen.getByText(/finnish piper catalog snapshot/i)).toBeInTheDocument()
     expect(await screen.findByText(/finnish starter small/i)).toBeInTheDocument()
     expect(screen.getByText(/finnish harri low \(piper\)/i)).toBeInTheDocument()
     expect(screen.getByText(/finnish harri medium \(piper\)/i)).toBeInTheDocument()
