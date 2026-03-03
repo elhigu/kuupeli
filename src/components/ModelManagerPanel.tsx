@@ -6,6 +6,7 @@ import { logError, logEvent } from '../observability/devLogger'
 export function ModelManagerPanel() {
   const [installed, setInstalled] = useState<string[]>([])
   const [activeModel, setActiveModelState] = useState<string>('')
+  const [storageError, setStorageError] = useState<string | null>(null)
 
   async function refresh() {
     try {
@@ -14,11 +15,13 @@ export function ModelManagerPanel() {
 
       setInstalled(models.map((model) => model.id))
       setActiveModelState(active)
+      setStorageError(null)
       logEvent('models', 'panel_refreshed', {
         installedModelIds: models.map((model) => model.id),
         activeModelId: active
       })
     } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Model storage is unavailable.')
       logError('models', 'panel_refresh_failed', error)
     }
   }
@@ -34,6 +37,7 @@ export function ModelManagerPanel() {
         Models are local Kuupeli runtime profiles in this version. They do not download separate cloud or external
         AI model files yet.
       </p>
+      {storageError && <p role="alert">{storageError}</p>}
       <ul>
         {MODEL_CATALOG.map((model) => {
           const isInstalled = installed.includes(model.id)
@@ -51,6 +55,7 @@ export function ModelManagerPanel() {
                       await installModel(model.id)
                       await refresh()
                     } catch (error) {
+                      setStorageError(error instanceof Error ? error.message : 'Model storage is unavailable.')
                       logError('models', 'install_failed', error, { modelId: model.id })
                     }
                   }}
@@ -67,6 +72,7 @@ export function ModelManagerPanel() {
                         await setActiveModel(model.id)
                         await refresh()
                       } catch (error) {
+                        setStorageError(error instanceof Error ? error.message : 'Model storage is unavailable.')
                         logError('models', 'set_active_failed', error, { modelId: model.id })
                       }
                     }}
@@ -83,6 +89,7 @@ export function ModelManagerPanel() {
                           await removeModel(model.id)
                           await refresh()
                         } catch (error) {
+                          setStorageError(error instanceof Error ? error.message : 'Model storage is unavailable.')
                           logError('models', 'remove_failed', error, { modelId: model.id })
                         }
                       }}

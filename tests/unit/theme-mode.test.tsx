@@ -1,9 +1,13 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App'
 
 describe('Theme mode', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     localStorage.clear()
     delete document.documentElement.dataset.theme
@@ -27,5 +31,15 @@ describe('Theme mode', () => {
       expect(document.documentElement.dataset.theme).toBe('light')
       expect(localStorage.getItem('kuupeli-theme')).toBe('light')
     })
+  })
+
+  it('shows recoverable guidance when browser storage is full', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage full', 'QuotaExceededError')
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/browser storage is full/i)
   })
 })

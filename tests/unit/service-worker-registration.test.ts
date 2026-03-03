@@ -37,4 +37,23 @@ describe('Service worker registration', () => {
     expect(addLoadListener).toHaveBeenCalledTimes(1)
     expect(register).toHaveBeenCalledWith('/sw.js')
   })
+
+  it('registers service worker under configured base path', async () => {
+    const register = vi.fn().mockResolvedValue(undefined)
+    const addLoadListener = vi.fn<(listener: () => void) => void>()
+
+    addLoadListener.mockImplementation((listener) => {
+      listener()
+    })
+
+    registerServiceWorker({
+      isProduction: true,
+      serviceWorker: { register },
+      addLoadListener,
+      baseUrl: '/kuupeli/'
+    })
+
+    await Promise.resolve()
+    expect(register).toHaveBeenCalledWith('/kuupeli/sw.js')
+  })
 })

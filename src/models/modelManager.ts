@@ -1,12 +1,31 @@
 import { MODEL_CATALOG, type ModelCatalogEntry } from './catalog'
-import { logEvent } from '../observability/devLogger'
+import { logError, logEvent } from '../observability/devLogger'
+import { storageRecoveryGuidance } from '../storage/storageGuidance'
 
 const STORAGE_KEY = 'kuupeli-installed-models'
 const ACTIVE_MODEL_KEY = 'kuupeli-active-model'
 const DEFAULT_MODEL = 'fi-starter-small'
 
+function readStorageItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch (error) {
+    logError('models_store', 'storage_read_failed', error, { key })
+    throw new Error(storageRecoveryGuidance(error))
+  }
+}
+
+function writeStorageItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch (error) {
+    logError('models_store', 'storage_write_failed', error, { key })
+    throw new Error(storageRecoveryGuidance(error))
+  }
+}
+
 function readInstalledModelIds(): string[] {
-  const raw = localStorage.getItem(STORAGE_KEY)
+  const raw = readStorageItem(STORAGE_KEY)
 
   if (!raw) {
     return [DEFAULT_MODEL]
@@ -21,7 +40,7 @@ function readInstalledModelIds(): string[] {
 }
 
 function writeInstalledModelIds(ids: string[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(new Set(ids))))
+  writeStorageItem(STORAGE_KEY, JSON.stringify(Array.from(new Set(ids))))
 }
 
 export async function listModels(): Promise<ModelCatalogEntry[]> {
@@ -36,8 +55,8 @@ export async function installModel(modelId: string): Promise<void> {
   writeInstalledModelIds([...installed, modelId])
   logEvent('models_store', 'installed', { modelId })
 
-  if (!localStorage.getItem(ACTIVE_MODEL_KEY)) {
-    localStorage.setItem(ACTIVE_MODEL_KEY, modelId)
+  if (!readStorageItem(ACTIVE_MODEL_KEY)) {
+    writeStorageItem(ACTIVE_MODEL_KEY, modelId)
     logEvent('models_store', 'active_auto_set', { modelId })
   }
 }
@@ -47,8 +66,8 @@ export async function removeModel(modelId: string): Promise<void> {
   writeInstalledModelIds(installed.length > 0 ? installed : [DEFAULT_MODEL])
   logEvent('models_store', 'removed', { modelId })
 
-  if (localStorage.getItem(ACTIVE_MODEL_KEY) === modelId) {
-    localStorage.setItem(ACTIVE_MODEL_KEY, DEFAULT_MODEL)
+  if (readStorageItem(ACTIVE_MODEL_KEY) === modelId) {
+    writeStorageItem(ACTIVE_MODEL_KEY, DEFAULT_MODEL)
     logEvent('models_store', 'active_reset_to_default', { modelId: DEFAULT_MODEL })
   }
 }
@@ -60,12 +79,12 @@ export async function setActiveModel(modelId: string): Promise<void> {
     throw new Error(`Model not installed: ${modelId}`)
   }
 
-  localStorage.setItem(ACTIVE_MODEL_KEY, modelId)
+  writeStorageItem(ACTIVE_MODEL_KEY, modelId)
   logEvent('models_store', 'active_set', { modelId })
 }
 
 export async function getActiveModel(): Promise<string> {
-  const active = localStorage.getItem(ACTIVE_MODEL_KEY)
+  const active = readStorageItem(ACTIVE_MODEL_KEY)
   const activeModel = active ?? DEFAULT_MODEL
   logEvent('models_store', 'active_read', { modelId: activeModel })
   return activeModel
