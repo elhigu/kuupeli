@@ -24,6 +24,23 @@ async function parseImportFile(file: File): Promise<string> {
   return isPdf ? parsePdfFile(file) : parseTxtFile(file)
 }
 
+function importFailureMessage(file: File, error: unknown): string {
+  const isPdf = file.type === 'application/pdf' || file.name.toLocaleLowerCase('fi-FI').endsWith('.pdf')
+  if (isPdf) {
+    return 'Could not import PDF. Try another PDF export or convert the document to TXT.'
+  }
+
+  if (file.name.toLocaleLowerCase('fi-FI').endsWith('.txt') || file.type.startsWith('text/')) {
+    return 'Could not import TXT. Verify the file is readable plain text and try again.'
+  }
+
+  if (error instanceof Error && error.message) {
+    return `Story import failed: ${error.message}`
+  }
+
+  return 'Story import failed.'
+}
+
 export function StoriesPage() {
   const [stories, setStories] = useState<TrainingPack[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -101,7 +118,7 @@ export function StoriesPage() {
                   sentenceCount: story.sentences.length
                 })
               } catch (importError) {
-                setError('Story import failed.')
+                setError(importFailureMessage(file, importError))
                 logError('stories', 'import_failed', importError, { fileName: file.name })
               } finally {
                 setIsLoading(false)
