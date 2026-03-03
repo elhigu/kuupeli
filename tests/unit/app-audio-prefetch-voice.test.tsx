@@ -37,4 +37,16 @@ describe('App audio prefetch voice selection', () => {
 
     expect(mocks.prefetchSentenceClip).toHaveBeenCalledWith(expect.any(String), 'fi+f3')
   })
+
+  it('skips prefetch when active model is non-espeak', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('kuupeli-active-model', 'fi-piper-harri-low')
+
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /aloita/i }))
+
+    await waitFor(() => {
+      expect(mocks.prefetchSentenceClip).not.toHaveBeenCalled()
+    })
+  })
 })
