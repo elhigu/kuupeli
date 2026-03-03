@@ -23,6 +23,7 @@ test('replay outputs non-empty audio payload', async ({ page }) => {
   })
 
   await page.goto('/')
+  await page.getByRole('button', { name: 'Aloita' }).click()
   infoLogs.length = 0
 
   await page.getByRole('button', { name: 'Replay' }).click()

@@ -1,8 +1,9 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import { BrowserRouter } from 'react-router-dom'
 import { logError, logEvent } from './observability/devLogger'
 import { registerServiceWorker } from './pwa/registerServiceWorker'
+import { AppRoutes } from './routes/AppRoutes'
 import './styles.css'
 
 const container = document.getElementById('root')
@@ -22,7 +23,9 @@ registerServiceWorker({
 
 createRoot(container).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   </React.StrictMode>
 )
 

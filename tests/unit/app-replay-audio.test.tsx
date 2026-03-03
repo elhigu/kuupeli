@@ -25,16 +25,24 @@ describe('App replay audio', () => {
     })
   })
 
-  it('requests audio on initial load and when replay is clicked', async () => {
+  it('starts playback from Aloita and replays when replay is clicked', async () => {
     const user = userEvent.setup()
     render(<App />)
+
+    expect(playSentenceAudio).toHaveBeenCalledTimes(0)
+
+    await user.click(screen.getByRole('button', { name: /aloita/i }))
 
     await waitFor(() => {
       expect(playSentenceAudio).toHaveBeenCalledTimes(1)
     })
 
+    const composer = screen.getByLabelText('Sentence answer input')
+    expect(composer).toHaveFocus()
+
     await user.click(screen.getByRole('button', { name: /replay/i }))
 
     expect(playSentenceAudio).toHaveBeenCalledTimes(2)
+    expect(composer).toHaveFocus()
   })
 })
