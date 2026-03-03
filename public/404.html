@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kuupeli Redirect</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        var segments = window.location.pathname.split('/').filter(Boolean)
+        var base = segments.length > 0 ? '/' + segments[0] + '/' : '/'
+        var relative = '/' + segments.slice(1).join('/')
+        var fullPath = relative + window.location.search + window.location.hash
+        var target = base + '?ghp_path=' + encodeURIComponent(fullPath)
+        window.location.replace(target)
+      })()
+    </script>
+  </body>
+</html>

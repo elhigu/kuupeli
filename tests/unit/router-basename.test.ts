@@ -5,5 +5,6 @@ describe('Router basename configuration', () => {
   it('sets BrowserRouter basename from Vite BASE_URL', () => {
     const source = fs.readFileSync('src/main.tsx', 'utf8')
     expect(source).toMatch(/<BrowserRouter basename=\{import\.meta\.env\.BASE_URL\}>/)
+    expect(source).toMatch(/restorePathFromGhPagesFallback\(window\.location, window\.history, import\.meta\.env\.BASE_URL\)/)
   })
 })

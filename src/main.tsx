@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { logError, logEvent } from './observability/devLogger'
 import { registerServiceWorker } from './pwa/registerServiceWorker'
+import { restorePathFromGhPagesFallback } from './routing/ghPagesFallback'
 import { AppRoutes } from './routes/AppRoutes'
 import './styles.css'
 
@@ -14,6 +15,8 @@ if (!container) {
 }
 
 logEvent('app_boot', 'starting_render')
+
+restorePathFromGhPagesFallback(window.location, window.history, import.meta.env.BASE_URL)
 
 registerServiceWorker({
   isProduction: import.meta.env.PROD,
