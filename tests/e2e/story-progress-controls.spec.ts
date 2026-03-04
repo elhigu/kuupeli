@@ -2,7 +2,7 @@ import { expect, test } from './guardedTest'
 
 test('story progress can be rewound and reset from Stories view', async ({ page }) => {
   const fileName = 'story-progress-controls.txt'
-  await page.goto('/stories')
+  await page.goto('stories')
 
   await page.getByLabel('Import File').setInputFiles({
     name: fileName,
